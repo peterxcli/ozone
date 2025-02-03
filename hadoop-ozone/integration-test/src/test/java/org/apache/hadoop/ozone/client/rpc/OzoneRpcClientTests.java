@@ -2902,310 +2902,277 @@ abstract class OzoneRpcClientTests extends OzoneTestBase {
     );
   }
 
-  @ParameterizedTest
-  @MethodSource("replicationConfigs")
-  void testInitiateMultipartUpload(ReplicationConfig replicationConfig)
-      throws IOException {
-    String volumeName = UUID.randomUUID().toString();
-    String bucketName = UUID.randomUUID().toString();
-    String keyName = UUID.randomUUID().toString();
+  // @Test
+  // public void testInitiateMultipartUploadWithDefaultReplication() throws
+  //     IOException {
+  //   String volumeName = UUID.randomUUID().toString();
+  //   String bucketName = UUID.randomUUID().toString();
+  //   String keyName = UUID.randomUUID().toString();
 
-    store.createVolume(volumeName);
-    OzoneVolume volume = store.getVolume(volumeName);
-    volume.createBucket(bucketName);
-    OzoneBucket bucket = volume.getBucket(bucketName);
-    OmMultipartInfo multipartInfo = bucket.initiateMultipartUpload(keyName,
-        replicationConfig);
+  //   store.createVolume(volumeName);
+  //   OzoneVolume volume = store.getVolume(volumeName);
+  //   volume.createBucket(bucketName);
+  //   OzoneBucket bucket = volume.getBucket(bucketName);
+  //   OmMultipartInfo multipartInfo = bucket.initiateMultipartUpload(keyName);
 
-    assertNotNull(multipartInfo);
-    String uploadID = multipartInfo.getUploadID();
-    assertEquals(volumeName, multipartInfo.getVolumeName());
-    assertEquals(bucketName, multipartInfo.getBucketName());
-    assertEquals(keyName, multipartInfo.getKeyName());
-    assertNotNull(multipartInfo.getUploadID());
+  //   assertNotNull(multipartInfo);
+  //   String uploadID = multipartInfo.getUploadID();
+  //   assertNotNull(multipartInfo.getUploadID());
 
-    // Call initiate multipart upload for the same key again, this should
-    // generate a new uploadID.
-    multipartInfo = bucket.initiateMultipartUpload(keyName,
-        replicationConfig);
+  //   // Call initiate multipart upload for the same key again, this should
+  //   // generate a new uploadID.
+  //   multipartInfo = bucket.initiateMultipartUpload(keyName);
 
-    assertNotNull(multipartInfo);
-    assertNotEquals(multipartInfo.getUploadID(), uploadID);
-    assertNotNull(multipartInfo.getUploadID());
-  }
+  //   assertNotNull(multipartInfo);
+  //   assertNotEquals(multipartInfo.getUploadID(), uploadID);
+  //   assertNotNull(multipartInfo.getUploadID());
+  // }
 
+  // @ParameterizedTest
+  // @MethodSource("replicationConfigs")
+  // void testUploadPartWithNoOverride(ReplicationConfig replication)
+  //     throws IOException {
+  //   String volumeName = UUID.randomUUID().toString();
+  //   String bucketName = UUID.randomUUID().toString();
+  //   String keyName = UUID.randomUUID().toString();
+  //   String sampleData = "sample Value";
 
-  @Test
-  public void testInitiateMultipartUploadWithDefaultReplication() throws
-      IOException {
-    String volumeName = UUID.randomUUID().toString();
-    String bucketName = UUID.randomUUID().toString();
-    String keyName = UUID.randomUUID().toString();
+  //   store.createVolume(volumeName);
+  //   OzoneVolume volume = store.getVolume(volumeName);
+  //   volume.createBucket(bucketName);
+  //   OzoneBucket bucket = volume.getBucket(bucketName);
+  //   OmMultipartInfo multipartInfo = bucket.initiateMultipartUpload(keyName,
+  //       replication);
 
-    store.createVolume(volumeName);
-    OzoneVolume volume = store.getVolume(volumeName);
-    volume.createBucket(bucketName);
-    OzoneBucket bucket = volume.getBucket(bucketName);
-    OmMultipartInfo multipartInfo = bucket.initiateMultipartUpload(keyName);
+  //   assertNotNull(multipartInfo);
+  //   String uploadID = multipartInfo.getUploadID();
+  //   assertNotNull(multipartInfo.getUploadID());
 
-    assertNotNull(multipartInfo);
-    String uploadID = multipartInfo.getUploadID();
-    assertNotNull(multipartInfo.getUploadID());
+  //   OzoneOutputStream ozoneOutputStream = bucket.createMultipartKey(keyName,
+  //       sampleData.length(), 1, uploadID);
+  //   ozoneOutputStream.write(string2Bytes(sampleData), 0, sampleData.length());
+  //   ozoneOutputStream.getMetadata().put(ETAG, DigestUtils.md5Hex(sampleData));
+  //   ozoneOutputStream.close();
 
-    // Call initiate multipart upload for the same key again, this should
-    // generate a new uploadID.
-    multipartInfo = bucket.initiateMultipartUpload(keyName);
+  //   OmMultipartCommitUploadPartInfo commitUploadPartInfo = ozoneOutputStream
+  //       .getCommitUploadPartInfo();
 
-    assertNotNull(multipartInfo);
-    assertNotEquals(multipartInfo.getUploadID(), uploadID);
-    assertNotNull(multipartInfo.getUploadID());
-  }
+  //   assertNotNull(commitUploadPartInfo);
+  //   assertNotNull(commitUploadPartInfo.getETag());
+  // }
 
-  @ParameterizedTest
-  @MethodSource("replicationConfigs")
-  void testUploadPartWithNoOverride(ReplicationConfig replication)
-      throws IOException {
-    String volumeName = UUID.randomUUID().toString();
-    String bucketName = UUID.randomUUID().toString();
-    String keyName = UUID.randomUUID().toString();
-    String sampleData = "sample Value";
+  // @ParameterizedTest
+  // @MethodSource("replicationConfigs")
+  // void testUploadPartOverride(ReplicationConfig replication)
+  //     throws IOException {
 
-    store.createVolume(volumeName);
-    OzoneVolume volume = store.getVolume(volumeName);
-    volume.createBucket(bucketName);
-    OzoneBucket bucket = volume.getBucket(bucketName);
-    OmMultipartInfo multipartInfo = bucket.initiateMultipartUpload(keyName,
-        replication);
+  //   String volumeName = UUID.randomUUID().toString();
+  //   String bucketName = UUID.randomUUID().toString();
+  //   String keyName = UUID.randomUUID().toString();
+  //   String sampleData = "sample Value";
+  //   int partNumber = 1;
 
-    assertNotNull(multipartInfo);
-    String uploadID = multipartInfo.getUploadID();
-    assertNotNull(multipartInfo.getUploadID());
+  //   store.createVolume(volumeName);
+  //   OzoneVolume volume = store.getVolume(volumeName);
+  //   volume.createBucket(bucketName);
+  //   OzoneBucket bucket = volume.getBucket(bucketName);
+  //   OmMultipartInfo multipartInfo = bucket.initiateMultipartUpload(keyName,
+  //       replication);
 
-    OzoneOutputStream ozoneOutputStream = bucket.createMultipartKey(keyName,
-        sampleData.length(), 1, uploadID);
-    ozoneOutputStream.write(string2Bytes(sampleData), 0, sampleData.length());
-    ozoneOutputStream.getMetadata().put(ETAG, DigestUtils.md5Hex(sampleData));
-    ozoneOutputStream.close();
+  //   assertNotNull(multipartInfo);
+  //   String uploadID = multipartInfo.getUploadID();
+  //   assertNotNull(multipartInfo.getUploadID());
 
-    OmMultipartCommitUploadPartInfo commitUploadPartInfo = ozoneOutputStream
-        .getCommitUploadPartInfo();
+  //   OzoneOutputStream ozoneOutputStream = bucket.createMultipartKey(keyName,
+  //       sampleData.length(), partNumber, uploadID);
+  //   ozoneOutputStream.write(string2Bytes(sampleData), 0, sampleData.length());
+  //   ozoneOutputStream.getMetadata().put(ETAG, DigestUtils.md5Hex(sampleData));
+  //   ozoneOutputStream.close();
 
-    assertNotNull(commitUploadPartInfo);
-    assertNotNull(commitUploadPartInfo.getETag());
-  }
+  //   OmMultipartCommitUploadPartInfo commitUploadPartInfo = ozoneOutputStream
+  //       .getCommitUploadPartInfo();
 
-  @ParameterizedTest
-  @MethodSource("replicationConfigs")
-  void testUploadPartOverride(ReplicationConfig replication)
-      throws IOException {
+  //   assertNotNull(commitUploadPartInfo);
+  //   String partName = commitUploadPartInfo.getPartName();
+  //   assertNotNull(commitUploadPartInfo.getETag());
 
-    String volumeName = UUID.randomUUID().toString();
-    String bucketName = UUID.randomUUID().toString();
-    String keyName = UUID.randomUUID().toString();
-    String sampleData = "sample Value";
-    int partNumber = 1;
+  //   // Overwrite the part by creating part key with same part number
+  //   // and different content.
+  //   sampleData = "sample Data Changed";
+  //   ozoneOutputStream = bucket.createMultipartKey(keyName,
+  //       sampleData.length(), partNumber, uploadID);
+  //   ozoneOutputStream.write(string2Bytes(sampleData), 0, "name".length());
+  //   ozoneOutputStream.getMetadata().put(ETAG, DigestUtils.md5Hex(sampleData));
+  //   ozoneOutputStream.close();
 
-    store.createVolume(volumeName);
-    OzoneVolume volume = store.getVolume(volumeName);
-    volume.createBucket(bucketName);
-    OzoneBucket bucket = volume.getBucket(bucketName);
-    OmMultipartInfo multipartInfo = bucket.initiateMultipartUpload(keyName,
-        replication);
+  //   commitUploadPartInfo = ozoneOutputStream
+  //       .getCommitUploadPartInfo();
 
-    assertNotNull(multipartInfo);
-    String uploadID = multipartInfo.getUploadID();
-    assertNotNull(multipartInfo.getUploadID());
+  //   assertNotNull(commitUploadPartInfo);
+  //   assertNotNull(commitUploadPartInfo.getETag());
 
-    OzoneOutputStream ozoneOutputStream = bucket.createMultipartKey(keyName,
-        sampleData.length(), partNumber, uploadID);
-    ozoneOutputStream.write(string2Bytes(sampleData), 0, sampleData.length());
-    ozoneOutputStream.getMetadata().put(ETAG, DigestUtils.md5Hex(sampleData));
-    ozoneOutputStream.close();
+  //   // AWS S3 for same content generates same partName during upload part.
+  //   // In AWS S3 ETag is generated from md5sum. In Ozone right now we
+  //   // don't do this. For now to make things work for large file upload
+  //   // through aws s3 cp, the partName are generated in a predictable fashion.
+  //   // So, when a part is override partNames will still be same irrespective
+  //   // of content in ozone s3. This will make S3 Mpu completeMPU pass when
+  //   // comparing part names and large file uploads work using aws cp.
+  //   assertEquals(partName, commitUploadPartInfo.getPartName(),
+  //       "Part names should be same");
+  // }
 
-    OmMultipartCommitUploadPartInfo commitUploadPartInfo = ozoneOutputStream
-        .getCommitUploadPartInfo();
+  // @Test
+  // public void testNoSuchUploadError() throws Exception {
+  //   String volumeName = UUID.randomUUID().toString();
+  //   String bucketName = UUID.randomUUID().toString();
+  //   String keyName = UUID.randomUUID().toString();
+  //   String sampleData = "sample Value";
 
-    assertNotNull(commitUploadPartInfo);
-    String partName = commitUploadPartInfo.getPartName();
-    assertNotNull(commitUploadPartInfo.getETag());
+  //   store.createVolume(volumeName);
+  //   OzoneVolume volume = store.getVolume(volumeName);
+  //   volume.createBucket(bucketName);
+  //   OzoneBucket bucket = volume.getBucket(bucketName);
 
-    // Overwrite the part by creating part key with same part number
-    // and different content.
-    sampleData = "sample Data Changed";
-    ozoneOutputStream = bucket.createMultipartKey(keyName,
-        sampleData.length(), partNumber, uploadID);
-    ozoneOutputStream.write(string2Bytes(sampleData), 0, "name".length());
-    ozoneOutputStream.getMetadata().put(ETAG, DigestUtils.md5Hex(sampleData));
-    ozoneOutputStream.close();
+  //   String uploadID = "random";
+  //   OzoneTestUtils
+  //       .expectOmException(NO_SUCH_MULTIPART_UPLOAD_ERROR, () ->
+  //           bucket
+  //               .createMultipartKey(keyName, sampleData.length(), 1, uploadID));
+  // }
 
-    commitUploadPartInfo = ozoneOutputStream
-        .getCommitUploadPartInfo();
+  // @Test
+  // public void testMultipartUploadWithACL() throws Exception {
+  //   String volumeName = UUID.randomUUID().toString();
+  //   String bucketName = UUID.randomUUID().toString();
+  //   String keyName = UUID.randomUUID().toString();
 
-    assertNotNull(commitUploadPartInfo);
-    assertNotNull(commitUploadPartInfo.getETag());
+  //   store.createVolume(volumeName);
+  //   OzoneVolume volume = store.getVolume(volumeName);
+  //   // TODO: HDDS-3402. Files/dirs in FSO buckets currently do not inherit
+  //   //  parent ACLs.
+  //   volume.createBucket(bucketName, BucketArgs.newBuilder()
+  //       .setBucketLayout(BucketLayout.OBJECT_STORE).build());
+  //   OzoneBucket bucket = volume.getBucket(bucketName);
 
-    // AWS S3 for same content generates same partName during upload part.
-    // In AWS S3 ETag is generated from md5sum. In Ozone right now we
-    // don't do this. For now to make things work for large file upload
-    // through aws s3 cp, the partName are generated in a predictable fashion.
-    // So, when a part is override partNames will still be same irrespective
-    // of content in ozone s3. This will make S3 Mpu completeMPU pass when
-    // comparing part names and large file uploads work using aws cp.
-    assertEquals(partName, commitUploadPartInfo.getPartName(),
-        "Part names should be same");
-  }
+  //   // Add ACL on Bucket
+  //   OzoneAcl acl1 = new OzoneAcl(USER, "Monday", DEFAULT, ALL);
+  //   OzoneAcl acl2 = new OzoneAcl(USER, "Friday", DEFAULT, ALL);
+  //   OzoneAcl acl3 = new OzoneAcl(USER, "Jan", ACCESS, ALL);
+  //   OzoneAcl acl4 = new OzoneAcl(USER, "Feb", ACCESS, ALL);
+  //   bucket.addAcl(acl1);
+  //   bucket.addAcl(acl2);
+  //   bucket.addAcl(acl3);
+  //   bucket.addAcl(acl4);
 
-  @Test
-  public void testNoSuchUploadError() throws Exception {
-    String volumeName = UUID.randomUUID().toString();
-    String bucketName = UUID.randomUUID().toString();
-    String keyName = UUID.randomUUID().toString();
-    String sampleData = "sample Value";
+  //   ReplicationConfig replication = RatisReplicationConfig.getInstance(
+  //       HddsProtos.ReplicationFactor.ONE);
+  //   doMultipartUpload(bucket, keyName, (byte)98, replication);
+  //   OzoneObj keyObj = OzoneObjInfo.Builder.newBuilder()
+  //       .setBucketName(bucketName)
+  //       .setVolumeName(volumeName).setKeyName(keyName)
+  //       .setResType(OzoneObj.ResourceType.KEY)
+  //       .setStoreType(OzoneObj.StoreType.OZONE).build();
+  //   List<OzoneAcl> aclList = store.getAcl(keyObj);
+  //   // key should inherit bucket's DEFAULT type acl
+  //   assertTrue(aclList.stream().anyMatch(
+  //       acl -> acl.getName().equals(acl1.getName())));
+  //   assertTrue(aclList.stream().anyMatch(
+  //       acl -> acl.getName().equals(acl2.getName())));
 
-    store.createVolume(volumeName);
-    OzoneVolume volume = store.getVolume(volumeName);
-    volume.createBucket(bucketName);
-    OzoneBucket bucket = volume.getBucket(bucketName);
+  //   // kye should not inherit bucket's ACCESS type acl
+  //   assertFalse(aclList.stream().anyMatch(
+  //       acl -> acl.getName().equals(acl3.getName())));
+  //   assertFalse(aclList.stream().anyMatch(
+  //       acl -> acl.getName().equals(acl4.getName())));
 
-    String uploadID = "random";
-    OzoneTestUtils
-        .expectOmException(NO_SUCH_MULTIPART_UPLOAD_ERROR, () ->
-            bucket
-                .createMultipartKey(keyName, sampleData.length(), 1, uploadID));
-  }
+  //   // User without permission should fail to upload the object
+  //   String userName = "test-user";
+  //   UserGroupInformation remoteUser =
+  //       UserGroupInformation.createRemoteUser(userName);
+  //   try (OzoneClient client =
+  //       remoteUser.doAs((PrivilegedExceptionAction<OzoneClient>)
+  //           () -> OzoneClientFactory.getRpcClient(cluster.getConf()))) {
+  //     OzoneAcl acl5 = new OzoneAcl(USER, userName, DEFAULT, ACLType.READ);
+  //     OzoneAcl acl6 = new OzoneAcl(USER, userName, ACCESS, ACLType.READ);
+  //     OzoneObj volumeObj = OzoneObjInfo.Builder.newBuilder()
+  //         .setVolumeName(volumeName).setStoreType(OzoneObj.StoreType.OZONE)
+  //         .setResType(OzoneObj.ResourceType.VOLUME).build();
+  //     OzoneObj bucketObj = OzoneObjInfo.Builder.newBuilder()
+  //         .setVolumeName(volumeName).setBucketName(bucketName)
+  //         .setStoreType(OzoneObj.StoreType.OZONE)
+  //         .setResType(OzoneObj.ResourceType.BUCKET).build();
+  //     store.addAcl(volumeObj, acl5);
+  //     store.addAcl(volumeObj, acl6);
+  //     store.addAcl(bucketObj, acl5);
+  //     store.addAcl(bucketObj, acl6);
 
-  @Test
-  public void testMultipartUploadWithACL() throws Exception {
-    String volumeName = UUID.randomUUID().toString();
-    String bucketName = UUID.randomUUID().toString();
-    String keyName = UUID.randomUUID().toString();
+  //     // User without permission cannot start multi-upload
+  //     String keyName2 = UUID.randomUUID().toString();
+  //     OzoneBucket bucket2 = client.getObjectStore().getVolume(volumeName)
+  //         .getBucket(bucketName);
+  //     OMException ome =
+  //         assertThrows(OMException.class, () -> initiateMultipartUpload(bucket2, keyName2, anyReplication()),
+  //             "User without permission should fail");
+  //     assertEquals(ResultCodes.PERMISSION_DENIED, ome.getResult());
 
-    store.createVolume(volumeName);
-    OzoneVolume volume = store.getVolume(volumeName);
-    // TODO: HDDS-3402. Files/dirs in FSO buckets currently do not inherit
-    //  parent ACLs.
-    volume.createBucket(bucketName, BucketArgs.newBuilder()
-        .setBucketLayout(BucketLayout.OBJECT_STORE).build());
-    OzoneBucket bucket = volume.getBucket(bucketName);
+  //     // Add create permission for user, and try multi-upload init again
+  //     OzoneAcl acl7 = new OzoneAcl(USER, userName, DEFAULT, ACLType.CREATE);
+  //     OzoneAcl acl8 = new OzoneAcl(USER, userName, ACCESS, ACLType.CREATE);
+  //     OzoneAcl acl9 = new OzoneAcl(USER, userName, DEFAULT, WRITE);
+  //     OzoneAcl acl10 = new OzoneAcl(USER, userName, ACCESS, WRITE);
+  //     store.addAcl(volumeObj, acl7);
+  //     store.addAcl(volumeObj, acl8);
+  //     store.addAcl(volumeObj, acl9);
+  //     store.addAcl(volumeObj, acl10);
 
-    // Add ACL on Bucket
-    OzoneAcl acl1 = new OzoneAcl(USER, "Monday", DEFAULT, ALL);
-    OzoneAcl acl2 = new OzoneAcl(USER, "Friday", DEFAULT, ALL);
-    OzoneAcl acl3 = new OzoneAcl(USER, "Jan", ACCESS, ALL);
-    OzoneAcl acl4 = new OzoneAcl(USER, "Feb", ACCESS, ALL);
-    bucket.addAcl(acl1);
-    bucket.addAcl(acl2);
-    bucket.addAcl(acl3);
-    bucket.addAcl(acl4);
+  //     store.addAcl(bucketObj, acl7);
+  //     store.addAcl(bucketObj, acl8);
+  //     store.addAcl(bucketObj, acl9);
+  //     store.addAcl(bucketObj, acl10);
+  //     String uploadId = initiateMultipartUpload(bucket2, keyName2,
+  //         anyReplication());
 
-    ReplicationConfig replication = RatisReplicationConfig.getInstance(
-        HddsProtos.ReplicationFactor.ONE);
-    doMultipartUpload(bucket, keyName, (byte)98, replication);
-    OzoneObj keyObj = OzoneObjInfo.Builder.newBuilder()
-        .setBucketName(bucketName)
-        .setVolumeName(volumeName).setKeyName(keyName)
-        .setResType(OzoneObj.ResourceType.KEY)
-        .setStoreType(OzoneObj.StoreType.OZONE).build();
-    List<OzoneAcl> aclList = store.getAcl(keyObj);
-    // key should inherit bucket's DEFAULT type acl
-    assertTrue(aclList.stream().anyMatch(
-        acl -> acl.getName().equals(acl1.getName())));
-    assertTrue(aclList.stream().anyMatch(
-        acl -> acl.getName().equals(acl2.getName())));
+  //     // Upload part
+  //     byte[] data = generateData(OzoneConsts.OM_MULTIPART_MIN_SIZE, (byte) 1);
+  //     Pair<String, String> partNameAndETag = uploadPart(bucket, keyName2,
+  //         uploadId, 1, data);
+  //     Map<Integer, String> eTagsMaps = new TreeMap<>();
+  //     eTagsMaps.put(1, partNameAndETag.getValue());
 
-    // kye should not inherit bucket's ACCESS type acl
-    assertFalse(aclList.stream().anyMatch(
-        acl -> acl.getName().equals(acl3.getName())));
-    assertFalse(aclList.stream().anyMatch(
-        acl -> acl.getName().equals(acl4.getName())));
+  //     // Complete multipart upload request
+  //     completeMultipartUpload(bucket2, keyName2, uploadId, eTagsMaps);
 
-    // User without permission should fail to upload the object
-    String userName = "test-user";
-    UserGroupInformation remoteUser =
-        UserGroupInformation.createRemoteUser(userName);
-    try (OzoneClient client =
-        remoteUser.doAs((PrivilegedExceptionAction<OzoneClient>)
-            () -> OzoneClientFactory.getRpcClient(cluster.getConf()))) {
-      OzoneAcl acl5 = new OzoneAcl(USER, userName, DEFAULT, ACLType.READ);
-      OzoneAcl acl6 = new OzoneAcl(USER, userName, ACCESS, ACLType.READ);
-      OzoneObj volumeObj = OzoneObjInfo.Builder.newBuilder()
-          .setVolumeName(volumeName).setStoreType(OzoneObj.StoreType.OZONE)
-          .setResType(OzoneObj.ResourceType.VOLUME).build();
-      OzoneObj bucketObj = OzoneObjInfo.Builder.newBuilder()
-          .setVolumeName(volumeName).setBucketName(bucketName)
-          .setStoreType(OzoneObj.StoreType.OZONE)
-          .setResType(OzoneObj.ResourceType.BUCKET).build();
-      store.addAcl(volumeObj, acl5);
-      store.addAcl(volumeObj, acl6);
-      store.addAcl(bucketObj, acl5);
-      store.addAcl(bucketObj, acl6);
+  //     // User without permission cannot read multi-uploaded object
+  //     OMException ex = assertThrows(OMException.class, () -> {
+  //       try (OzoneInputStream ignored = bucket2.readKey(keyName)) {
+  //         LOG.error("User without permission should fail");
+  //       }
+  //     }, "User without permission should fail");
+  //     assertEquals(ResultCodes.PERMISSION_DENIED, ex.getResult());
+  //   }
+  // }
 
-      // User without permission cannot start multi-upload
-      String keyName2 = UUID.randomUUID().toString();
-      OzoneBucket bucket2 = client.getObjectStore().getVolume(volumeName)
-          .getBucket(bucketName);
-      OMException ome =
-          assertThrows(OMException.class, () -> initiateMultipartUpload(bucket2, keyName2, anyReplication()),
-              "User without permission should fail");
-      assertEquals(ResultCodes.PERMISSION_DENIED, ome.getResult());
+  // @ParameterizedTest
+  // @MethodSource("replicationConfigs")
+  // void testMultipartUploadOverride(ReplicationConfig replication)
+  //     throws Exception {
+  //   String volumeName = UUID.randomUUID().toString();
+  //   String bucketName = UUID.randomUUID().toString();
+  //   String keyName = UUID.randomUUID().toString();
 
-      // Add create permission for user, and try multi-upload init again
-      OzoneAcl acl7 = new OzoneAcl(USER, userName, DEFAULT, ACLType.CREATE);
-      OzoneAcl acl8 = new OzoneAcl(USER, userName, ACCESS, ACLType.CREATE);
-      OzoneAcl acl9 = new OzoneAcl(USER, userName, DEFAULT, WRITE);
-      OzoneAcl acl10 = new OzoneAcl(USER, userName, ACCESS, WRITE);
-      store.addAcl(volumeObj, acl7);
-      store.addAcl(volumeObj, acl8);
-      store.addAcl(volumeObj, acl9);
-      store.addAcl(volumeObj, acl10);
+  //   store.createVolume(volumeName);
+  //   OzoneVolume volume = store.getVolume(volumeName);
+  //   volume.createBucket(bucketName);
+  //   OzoneBucket bucket = volume.getBucket(bucketName);
 
-      store.addAcl(bucketObj, acl7);
-      store.addAcl(bucketObj, acl8);
-      store.addAcl(bucketObj, acl9);
-      store.addAcl(bucketObj, acl10);
-      String uploadId = initiateMultipartUpload(bucket2, keyName2,
-          anyReplication());
+  //   doMultipartUpload(bucket, keyName, (byte)96, replication);
 
-      // Upload part
-      byte[] data = generateData(OzoneConsts.OM_MULTIPART_MIN_SIZE, (byte) 1);
-      Pair<String, String> partNameAndETag = uploadPart(bucket, keyName2,
-          uploadId, 1, data);
-      Map<Integer, String> eTagsMaps = new TreeMap<>();
-      eTagsMaps.put(1, partNameAndETag.getValue());
+  //   // Initiate Multipart upload again, now we should read latest version, as
+  //   // read always reads latest blocks.
+  //   doMultipartUpload(bucket, keyName, (byte)97, replication);
 
-      // Complete multipart upload request
-      completeMultipartUpload(bucket2, keyName2, uploadId, eTagsMaps);
-
-      // User without permission cannot read multi-uploaded object
-      OMException ex = assertThrows(OMException.class, () -> {
-        try (OzoneInputStream ignored = bucket2.readKey(keyName)) {
-          LOG.error("User without permission should fail");
-        }
-      }, "User without permission should fail");
-      assertEquals(ResultCodes.PERMISSION_DENIED, ex.getResult());
-    }
-  }
-
-  @ParameterizedTest
-  @MethodSource("replicationConfigs")
-  void testMultipartUploadOverride(ReplicationConfig replication)
-      throws Exception {
-    String volumeName = UUID.randomUUID().toString();
-    String bucketName = UUID.randomUUID().toString();
-    String keyName = UUID.randomUUID().toString();
-
-    store.createVolume(volumeName);
-    OzoneVolume volume = store.getVolume(volumeName);
-    volume.createBucket(bucketName);
-    OzoneBucket bucket = volume.getBucket(bucketName);
-
-    doMultipartUpload(bucket, keyName, (byte)96, replication);
-
-    // Initiate Multipart upload again, now we should read latest version, as
-    // read always reads latest blocks.
-    doMultipartUpload(bucket, keyName, (byte)97, replication);
-
-  }
+  // }
 
   /**
    * This test prints out that there is a memory leak in the test logs
