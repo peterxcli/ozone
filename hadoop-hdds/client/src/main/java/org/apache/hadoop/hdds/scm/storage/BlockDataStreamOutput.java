@@ -62,6 +62,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.apache.hadoop.hdds.DatanodeVersion.COMBINED_PUTBLOCK_WRITECHUNK_RPC;
 import static org.apache.hadoop.hdds.scm.storage.ContainerProtocolCalls.putBlockAsync;
 
 /**
@@ -131,6 +132,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
   private int flushPeriod;
   private final Token<? extends TokenIdentifier> token;
   private final String tokenString;
+  private Pipeline pipeline;
   private final DataStreamOutput out;
   private CompletableFuture<DataStreamReply> dataStreamCloseReply;
   private List<CompletableFuture<DataStreamReply>> futures = new ArrayList<>();
@@ -140,6 +142,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
   private XceiverClientMetrics metrics;
   // buffers for which putBlock is yet to be executed
   private List<StreamBuffer> buffersForPutBlock;
+  private boolean allowPutBlockPiggybacking;
   private boolean isDatastreamPipelineMode;
   /**
    * Creates a new BlockDataStreamOutput.
@@ -171,6 +174,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
     this.tokenString = (this.token == null) ? null :
         this.token.encodeToUrlString();
     // Alternatively, stream setup can be delayed till the first chunk write.
+    this.pipeline = pipeline;
     this.out = setupStream(pipeline);
     this.bufferList = bufferList;
     flushPeriod = (int) (config.getStreamBufferFlushSize() / config
@@ -191,6 +195,35 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
     checksum = new Checksum(config.getChecksumType(),
         config.getBytesPerChecksum());
     metrics = XceiverClientManager.getXceiverClientMetrics();
+    allowPutBlockPiggybacking = canEnablePutblockPiggybacking();
+    LOG.debug("PutBlock piggybacking is {}", allowPutBlockPiggybacking);
+  }
+
+  private boolean canEnablePutblockPiggybacking() {
+    boolean confEnablePutblockPiggybacking = config.getEnablePutblockPiggybacking();
+    if (!confEnablePutblockPiggybacking) {
+      return false;
+    }
+
+    if (!allDataNodesSupportPiggybacking()) {
+      // Not all datanodes support piggybacking and incremental chunk list.
+      LOG.debug("Unable to enable PutBlock piggybacking because not all datanodes support piggybacking");
+      return false;
+    }
+    return confEnablePutblockPiggybacking;
+  }
+
+  private boolean allDataNodesSupportPiggybacking() {
+    // return true only if all DataNodes in the pipeline are on a version
+    // that supports PutBlock piggybacking.
+    for (DatanodeDetails dn : pipeline.getNodes()) {
+      LOG.debug("dn = {}, version = {}", dn, dn.getCurrentVersion());
+      if (dn.getCurrentVersion() <
+              COMBINED_PUTBLOCK_WRITECHUNK_RPC.toProtoValue()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private DataStreamOutput setupStream(Pipeline pipeline) throws IOException {
@@ -648,6 +681,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
     return xceiverClient == null;
   }
 
+  // always return false
   private boolean needSync(long position) {
     if (SYNC_SIZE > 0) {
       // TODO: or position >= fileLength
