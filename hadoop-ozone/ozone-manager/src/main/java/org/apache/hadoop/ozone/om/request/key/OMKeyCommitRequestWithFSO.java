@@ -175,8 +175,10 @@ public class OMKeyCommitRequestWithFSO extends OMKeyCommitRequest {
         writerClientId = Long.parseLong(clientId);
       }
       dbOpenFileKey = fsoFile.getOpenFileName(writerClientId);
+      // LOG.info("dbOpenKey: {}", dbOpenFileKey);
       omKeyInfo = OMFileRequest.getOmKeyInfoFromFileTable(true,
               omMetadataManager, dbOpenFileKey, keyName);
+      LOG.info("Read open key: {} from DB with metadata: {}", dbOpenFileKey, omKeyInfo.getMetadata());
       if (omKeyInfo == null) {
         String action = isRecovery ? "recovery" : isHSync ? "hsync" : "commit";
         throw new OMException("Failed to " + action + " key, as " +

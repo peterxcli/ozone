@@ -27,6 +27,8 @@ import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
 import org.apache.hadoop.ozone.om.response.CleanupTableInfo;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import jakarta.annotation.Nonnull;
 import java.io.IOException;
@@ -45,6 +47,7 @@ import static org.apache.hadoop.ozone.om.OmMetadataManagerImpl.OPEN_FILE_TABLE;
     DELETED_TABLE, DELETED_DIR_TABLE, BUCKET_TABLE})
 public class OMKeyDeleteResponseWithFSO extends OMKeyDeleteResponse {
 
+  private static final Logger LOG = LoggerFactory.getLogger(OMKeyDeleteResponseWithFSO.class);
   private boolean isDeleteDirectory;
   private String keyName;
   private long volumeId;
@@ -113,11 +116,14 @@ public class OMKeyDeleteResponseWithFSO extends OMKeyDeleteResponse {
 
     // Update metadata which will be used to cleanup openKey in openKeyCleanupService
     OmKeyInfo deletedOpenKeyInfo = getDeletedOpenKeyInfo();
+    LOG.info("Deleted Open Key Info: {}", deletedOpenKeyInfo);
     if (deletedOpenKeyInfo != null) {
+      LOG.info("Deleted Open Key Info: {}", deletedOpenKeyInfo.getMetadata());
       String hsyncClientId = getDeletedOpenKeyInfo().getMetadata().get(OzoneConsts.HSYNC_CLIENT_ID);
       if (hsyncClientId != null) {
         String dbOpenKey = omMetadataManager.getOpenKey(deletedOpenKeyInfo.getVolumeName(),
             deletedOpenKeyInfo.getBucketName(), deletedOpenKeyInfo.getKeyName(), hsyncClientId);
+        LOG.info("Write open key: {} to DB with metadata: {}", dbOpenKey, deletedOpenKeyInfo.getMetadata());
         omMetadataManager.getOpenKeyTable(getBucketLayout()).putWithBatch(
             batchOperation, dbOpenKey, deletedOpenKeyInfo);
       }

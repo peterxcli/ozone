@@ -158,9 +158,9 @@ public abstract class AbstractKeyDeletingService extends BackgroundService
           // Purge key from OM DB.
           deletedTable.deleteWithBatch(writeBatch,
               result.getObjectKey());
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Key {} deleted from OM DB", result.getObjectKey());
-          }
+          // if (LOG.isDebugEnabled()) {
+          LOG.info("Key {} deleted from OM DB", result.getObjectKey());
+          // }
           deletedCount++;
         }
       }
@@ -190,15 +190,15 @@ public abstract class AbstractKeyDeletingService extends BackgroundService
         if (keysToModify != null && !keysToModify.containsKey(deletedKey)) {
           // Parse Volume and BucketName
           addToMap(purgeKeysMapPerBucket, deletedKey);
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Key {} set to be updated in OM DB, Other versions " +
+          // if (LOG.isDebugEnabled()) {
+          LOG.info("Key {} set to be updated in OM DB, Other versions " +
                 "of the key that are reclaimable are reclaimed.", deletedKey);
-          }
+          // }
         } else if (keysToModify == null) {
           addToMap(purgeKeysMapPerBucket, deletedKey);
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Key {} set to be purged from OM DB", deletedKey);
-          }
+          // if (LOG.isDebugEnabled()) {
+          LOG.info("Key {} set to be purged from OM DB", deletedKey);
+          // }
         }
         deletedCount++;
       }

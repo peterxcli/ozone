@@ -167,6 +167,7 @@ public class OMKeyDeleteRequestWithFSO extends OMKeyDeleteRequest {
         dbOpenKey = omMetadataManager.getOpenFileName(volumeId, bucketId, parentId, fileName, hsyncClientId);
         OmKeyInfo openKeyInfo = openKeyTable.get(dbOpenKey);
         if (openKeyInfo != null) {
+          LOG.info("Deleting open key: {}", dbOpenKey);
           openKeyInfo.getMetadata().put(DELETED_HSYNC_KEY, "true");
           openKeyTable.addCacheEntry(dbOpenKey, openKeyInfo, trxnLogIndex);
           deletedOpenKeyInfo = openKeyInfo;

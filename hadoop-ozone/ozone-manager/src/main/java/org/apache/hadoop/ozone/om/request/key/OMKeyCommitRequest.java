@@ -249,6 +249,7 @@ public class OMKeyCommitRequest extends OMKeyRequest {
       }
       String dbOpenKey = omMetadataManager.getOpenKey(volumeName, bucketName,
           keyName, writerClientId);
+      LOG.info("dbOpenKey: {}", dbOpenKey);
       omKeyInfo =
           omMetadataManager.getOpenKeyTable(getBucketLayout()).get(dbOpenKey);
       if (omKeyInfo == null) {

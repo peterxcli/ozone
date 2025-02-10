@@ -26,6 +26,8 @@ import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
 import org.apache.hadoop.ozone.om.response.CleanupTableInfo;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import jakarta.annotation.Nonnull;
 import java.io.IOException;
@@ -48,6 +50,7 @@ public class OMKeysDeleteResponse extends AbstractOMKeyDeleteResponse {
   private List<OmKeyInfo> omKeyInfoList;
   private OmBucketInfo omBucketInfo;
   private Map<String, OmKeyInfo> openKeyInfoMap = new HashMap<>();
+  private static final Logger LOG = LoggerFactory.getLogger(OMKeysDeleteResponse.class);
 
   public OMKeysDeleteResponse(@Nonnull OMResponse omResponse,
       @Nonnull List<OmKeyInfo> keyDeleteList,
@@ -104,6 +107,7 @@ public class OMKeysDeleteResponse extends AbstractOMKeyDeleteResponse {
 
     if (!openKeyInfoMap.isEmpty()) {
       for (Map.Entry<String, OmKeyInfo> entry : openKeyInfoMap.entrySet()) {
+        LOG.info("Writing open key to DB with key: {}, value: {}", entry.getKey(), entry.getValue());
         omMetadataManager.getOpenKeyTable(getBucketLayout()).putWithBatch(
             batchOperation, entry.getKey(), entry.getValue());
       }

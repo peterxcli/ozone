@@ -26,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,7 +69,7 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.StreamCapabilities;
-
+import org.apache.hadoop.fs.Syncable;
 import org.apache.hadoop.ozone.ClientConfigForTesting;
 import org.apache.hadoop.ozone.HddsDatanodeService;
 import org.apache.hadoop.ozone.MiniOzoneCluster;
@@ -569,10 +570,15 @@ public class TestHSync {
             () -> fs.getFileStatus(key1));
 
         // hsync should throw because the open key is gone
-        OMException exception = assertThrows(OMException.class,
-            () -> os.hsync());
-        assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, exception.getResult());
-
+        // OMException exception = assertThrows(OMException.class,
+        //     () -> os.hsync());
+        // assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, exception.getResult());
+        try {
+          os.hsync();
+          fail("hsync should throw because the open key is gone");
+        } catch (OMException omEx) {
+          assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, omEx.getResult());
+        }
         // key1 should not reappear after failed hsync
         assertThrows(FileNotFoundException.class,
             () -> fs.getFileStatus(key1));
@@ -602,26 +608,38 @@ public class TestHSync {
 
     // Create multiple files, some with hsync
     final int numFiles = 5;
-    List<String> openKeys = new ArrayList<>();
+    Map<String, FSDataOutputStream> openKeysOSMap = new HashMap<>();
 
     try (FileSystem fs = FileSystem.get(CONF)) {
       for (int i = 0; i < numFiles; i++) {
         String keyName = "batch-key-" + i;
         Path file = new Path(dir, keyName);
-        try (FSDataOutputStream os = fs.create(file, true)) {
-          os.write(1);
-          os.hsync();
-          openKeys.add(keyName);
-        }
+        FSDataOutputStream os = fs.create(file, true);
+        os.write(1);
+        os.hsync();
+        openKeysOSMap.put(keyName, os);
       }
 
-      client.getObjectStore().getVolume(testBucket.getVolumeName())
-          .getBucket(testBucket.getName())
-          .deleteKeys(openKeys);
+      try {
+        testBucket.deleteKeys(new ArrayList<>(openKeysOSMap.keySet()));
+      } catch (Exception ex) {
+        fail("deleteKeys should not throw exception, but got " + ex);
+      }
 
-      for (String key : openKeys) {
-        assertThrows(FileNotFoundException.class,
-          () -> fs.open(new Path(dir, key)));
+      LOG.info("openKeysOSMap: {}", openKeysOSMap);
+
+      for (Map.Entry<String, FSDataOutputStream> entry : openKeysOSMap.entrySet()) {
+        try {
+          entry.getValue().hsync();
+          fail("hsync should throw because the key is deleted");
+        } catch (OMException ex) {
+          assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, ex.getResult());
+        }
+
+        // os.close() throws OMException because the key is deleted
+        OMException exception = assertThrows(OMException.class,
+            () -> entry.getValue().close());
+        assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, exception.getResult());
       }
     }
   }

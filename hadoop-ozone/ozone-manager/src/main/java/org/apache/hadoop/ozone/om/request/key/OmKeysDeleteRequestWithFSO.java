@@ -115,6 +115,7 @@ public class OmKeysDeleteRequestWithFSO extends OMKeysDeleteRequest {
       if (hsyncClientId != null) {
         Table<String, OmKeyInfo> openKeyTable = omMetadataManager.getOpenKeyTable(getBucketLayout());
         String dbOpenKey = omMetadataManager.getOpenFileName(volumeId, bucketId, parentId, fileName, hsyncClientId);
+        LOG.info("dbOpenKey: {}", dbOpenKey);
         OmKeyInfo openKeyInfo = openKeyTable.get(dbOpenKey);
         if (openKeyInfo != null) {
           openKeyInfo.getMetadata().put(DELETED_HSYNC_KEY, "true");
