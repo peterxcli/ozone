@@ -165,7 +165,7 @@ public class OzoneOutputStream extends ByteArrayStreamOutput
   public Map<String, String> getMetadata() {
     KeyOutputStream keyOutputStream = getKeyOutputStream();
     if (keyOutputStream != null) {
-        return keyOutputStream.getMetadata();
+      return keyOutputStream.getMetadata();
     }
     return ((KeyMetadataAware) outputStream).getMetadata();
   }
