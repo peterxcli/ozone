@@ -541,6 +541,11 @@ public final class RatisHelper {
   public static void transferRatisLeadership(ConfigurationSource conf,
       RaftGroup group, RaftPeerId targetPeerId, GrpcTlsConfig tlsConfig)
       throws IOException {
+        .findFirst().orElseThrow(() -> new IOException("Target " + targetPeerId + " not found in group "
+            + group.getPeers().stream().map(RaftPeer::getId)
+                .collect(Collectors.toList()) + ".")
+        );
+
     if (group.getPeer(targetPeerId) == null) {
       throw new IOException("Target " + targetPeerId + " not found in group "
           + group.getPeers().stream().map(RaftPeer::getId)

@@ -39,6 +39,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Test transferLeadership with SCM HA setup.
@@ -110,8 +112,9 @@ public class TestTransferLeadershipShell {
     assertOMResetPriorities();
   }
 
-  @Test
-  public void testScmTransfer() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testScmTransfer(boolean useScmId) throws Exception {
     StorageContainerManager oldLeader = getScmLeader(cluster);
     List<StorageContainerManager> scmList = new ArrayList<>(cluster.
         getStorageContainerManagersList());
@@ -119,7 +122,8 @@ public class TestTransferLeadershipShell {
     scmList.remove(oldLeader);
     StorageContainerManager newLeader = scmList.get(0);
 
-    String[] args1 = {"scm", "transfer", "-n", newLeader.getScmId()};
+    String newLeaderId = useScmId ? newLeader.getScmId() : newLeader.getSCMNodeId();
+    String[] args1 = {"scm", "transfer", "-n", newLeaderId};
     ozoneAdmin.execute(args1);
     cluster.waitForClusterToBeReady();
     assertEquals(newLeader, getScmLeader(cluster));

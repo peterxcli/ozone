@@ -86,6 +86,8 @@ import org.apache.hadoop.hdds.scm.container.common.helpers.DeletedBlocksTransact
 import org.apache.hadoop.hdds.scm.events.SCMEvents;
 import org.apache.hadoop.hdds.scm.exceptions.SCMException;
 import org.apache.hadoop.hdds.scm.exceptions.SCMException.ResultCodes;
+import org.apache.hadoop.hdds.scm.ha.SCMHANodeDetails;
+import org.apache.hadoop.hdds.scm.ha.SCMNodeDetails;
 import org.apache.hadoop.hdds.scm.ha.SCMRatisServer;
 import org.apache.hadoop.hdds.scm.ha.SCMRatisServerImpl;
 import org.apache.hadoop.hdds.scm.node.DatanodeUsageInfo;
@@ -842,6 +844,44 @@ public class SCMClientProtocolServer implements
     }
   }
 
+  // Try searching for the scm by the new leader id, and return their raft peer id.
+  private Optional<String> tryResolveRaftPeerIdByNodeId(String newLeaderId, SCMRatisServer scmRatisServer) {
+    // Get local and peer node details from SCM HA configuration
+    SCMHANodeDetails haDetails = scm.getSCMHANodeDetails();
+    List<SCMNodeDetails> allNodes = new ArrayList<>(haDetails.getPeerNodeDetails());
+    allNodes.add(haDetails.getLocalNodeDetails());
+
+    // Find the SCM node that matches the requested leader ID
+    Optional<SCMNodeDetails> targetNode = allNodes.stream()
+        .filter(node -> node.getNodeId().equals(newLeaderId) || node.getNodeId().equals(UUID.fromString(newLeaderId)))
+        .findFirst();
+
+    if (!targetNode.isPresent()) {
+        LOG.error("Cannot find SCM node with ID: {} in SCM HA configuration", newLeaderId);
+        return Optional.empty();
+    }
+
+    // Find the corresponding Raft peer using the node's hostname and Ratis port
+    Optional<RaftPeer> raftPeer = scmRatisServer.getDivision().getGroup().getPeers().stream()
+        .filter(peer -> {
+            InetSocketAddress peerAddr = peer.getAddress();
+            String peerHost = peerAddr.getHostName();
+            int peerPort = peerAddr.getPort();
+            
+            return peerHost.equals(targetNode.get().getHostName()) && 
+                   peerPort == targetNode.get().getRatisPort();
+        })
+        .findFirst();
+
+    if (!raftPeer.isPresent()) {
+        LOG.error("Cannot find Raft peer for SCM node: {} (hostname: {}, ratis port: {})", 
+            newLeaderId, targetNode.get().getHostName(), targetNode.get().getRatisPort());
+        return Optional.empty();
+    }
+
+    return Optional.of(raftPeer.get().getId().toString());
+  }
+
   @Override
   public void transferLeadership(String newLeaderId)
       throws IOException {
@@ -855,6 +895,7 @@ public class SCMClientProtocolServer implements
     try {
       SCMRatisServer scmRatisServer = scm.getScmHAManager().getRatisServer();
       RaftGroup group = scmRatisServer.getDivision().getGroup();
+      scmRatisServer.getDivision().getRaftServer()
       RaftPeerId targetPeerId;
       if (newLeaderId.isEmpty()) {
         RaftPeer curLeader = ((SCMRatisServerImpl) scm.getScmHAManager()
@@ -866,7 +907,8 @@ public class SCMClientProtocolServer implements
             .orElseThrow(() -> new IOException("Cannot" +
                 " find a new leader to transfer leadership."));
       } else {
-        targetPeerId = RaftPeerId.valueOf(newLeaderId);
+        Optional<String> resolvedPeerId = tryResolveRaftPeerIdByNodeId(newLeaderId, scmRatisServer);
+        targetPeerId = RaftPeerId.valueOf(resolvedPeerId.orElse(newLeaderId));
       }
       final GrpcTlsConfig tlsConfig =
           createSCMRatisTLSConfig(new SecurityConfig(scm.getConfiguration()),

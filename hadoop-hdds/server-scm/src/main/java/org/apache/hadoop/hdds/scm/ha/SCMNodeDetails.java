@@ -34,6 +34,7 @@ public final class SCMNodeDetails extends NodeDetails {
   private final InetSocketAddress datanodeProtocolServerAddress;
   private final String datanodeAddressKey;
   private final int grpcPort;
+  private final String scmId;
 
   public static final Logger LOG =
       LoggerFactory.getLogger(SCMNodeDetails.class);
@@ -47,6 +48,7 @@ public final class SCMNodeDetails extends NodeDetails {
     datanodeAddressKey = b.datanodeAddressKey;
     blockProtocolServerAddressKey = b.blockProtocolServerAddressKey;
     clientProtocolServerAddressKey = b.clientProtocolServerAddressKey;
+    scmId = b.scmId;
   }
 
   @Override
@@ -70,6 +72,7 @@ public final class SCMNodeDetails extends NodeDetails {
   public static class Builder {
     private String scmServiceId;
     private String scmNodeId;
+    private String scmId;
     private InetSocketAddress rpcAddress;
     private int ratisPort;
     private int grpcPort;
@@ -134,6 +137,11 @@ public final class SCMNodeDetails extends NodeDetails {
 
     public Builder setSCMNodeId(String nodeId) {
       this.scmNodeId = nodeId;
+      return this;
+    }
+
+    public Builder setSCMId(String scmId) {
+      this.scmId = scmId;
       return this;
     }
 

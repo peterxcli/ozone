@@ -133,6 +133,7 @@ public class SCMRatisServerImpl implements SCMRatisServer {
       server = newRaftServer(scmId, conf).setGroup(group)
               .setStateMachineRegistry((groupId -> new SCMStateMachine()))
               .setOption(RaftStorage.StartupOption.RECOVER)
+              .setParameters(null)
               .build();
       server.start();
       waitForLeaderToBeReady(server, conf, group);

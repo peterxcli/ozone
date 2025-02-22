@@ -150,6 +150,7 @@ public class SCMHANodeDetails {
     InetSocketAddress localRpcAddress = null;
     String localScmServiceId = null;
     String localScmNodeId = null;
+    String localScmId = null;
     int localRatisPort = 0;
     int localGrpcPort = 0;
 
@@ -174,6 +175,7 @@ public class SCMHANodeDetails {
     }
 
     localScmNodeId = conf.get(ScmConfigKeys.OZONE_SCM_NODE_ID_KEY);
+    localScmId = storageConfig.getScmId();
     int found = 0;
     boolean isSCMddressSet = false;
 
