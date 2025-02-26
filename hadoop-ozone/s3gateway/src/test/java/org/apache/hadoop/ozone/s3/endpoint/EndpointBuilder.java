@@ -82,6 +82,7 @@ public class EndpointBuilder<T extends EndpointBase> {
     }
 
     endpoint.setRequestIdentifier(identifier);
+    endpoint.setContext(requestContext);
 
     return endpoint;
   }

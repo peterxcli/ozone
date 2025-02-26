@@ -1190,11 +1190,6 @@ public class ObjectEndpoint extends EndpointBase {
     this.headers = headers;
   }
 
-  @VisibleForTesting
-  public void setContext(ContainerRequestContext context) {
-    this.context = context;
-  }
-
   @SuppressWarnings("checkstyle:ParameterNumber")
   void copy(OzoneVolume volume, DigestInputStream src, long srcKeyLen,
       String destKey, String destBucket,

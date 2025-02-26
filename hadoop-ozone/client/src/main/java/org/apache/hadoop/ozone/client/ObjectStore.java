@@ -135,14 +135,17 @@ public class ObjectStore {
    * @throws IOException - On failure, throws an exception like Bucket exists.
    */
   public void createS3Bucket(String bucketName) throws IOException {
+    createS3Bucket(bucketName, BucketArgs.newBuilder().setBucketLayout(s3BucketLayout).build());
+  }
+
+  public void createS3Bucket(String bucketName, BucketArgs bucketArgs) throws IOException {
     OzoneVolume volume = getS3Volume();
     // Backwards compatibility:
     // When OM is pre-finalized for the bucket layout feature, it will block
     // the creation of all bucket types except legacy. If OBS bucket creation
     // fails for this reason, retry with legacy bucket layout.
     try {
-      volume.createBucket(bucketName,
-          BucketArgs.newBuilder().setBucketLayout(s3BucketLayout).build());
+      volume.createBucket(bucketName, bucketArgs);
     } catch (OMException ex) {
       if (ex.getResult() ==
           OMException.ResultCodes.NOT_SUPPORTED_OPERATION_PRIOR_FINALIZATION) {

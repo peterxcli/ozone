@@ -32,6 +32,8 @@ import static org.apache.hadoop.ozone.s3.util.S3Consts.TAG_VALUE_LENGTH_LIMIT;
 
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -84,6 +86,7 @@ import org.slf4j.LoggerFactory;
 public abstract class EndpointBase implements Auditor {
 
   protected static final String ETAG_CUSTOM = "etag-custom";
+  protected static final String EXPECTED_BUCKET_OWNER_HEADER = "x-amz-expected-bucket-owner";
 
   @Inject
   private OzoneClient client;
@@ -109,6 +112,17 @@ public abstract class EndpointBase implements Auditor {
     OzoneBucket bucket;
     try {
       bucket = volume.getBucket(bucketName);
+      
+      // Check if the expected bucket owner header is present and matches the actual owner
+      String expectedBucketOwner = context.getHeaderString(EXPECTED_BUCKET_OWNER_HEADER);
+      if (expectedBucketOwner != null && !expectedBucketOwner.isEmpty()) {
+        String actualBucketOwner = bucket.getOwner();
+        if (actualBucketOwner == null || !actualBucketOwner.equals(expectedBucketOwner)) {
+          LOG.error("Bucket owner mismatch. Expected: {}, Actual: {}", 
+              expectedBucketOwner, actualBucketOwner);
+          throw newError(S3ErrorTable.BUCKET_OWNER_MISMATCH, bucketName);
+        }
+      }
     } catch (OMException ex) {
       if (ex.getResult() == ResultCodes.BUCKET_NOT_FOUND) {
         throw newError(S3ErrorTable.NO_SUCH_BUCKET, bucketName, ex);
@@ -151,6 +165,17 @@ public abstract class EndpointBase implements Auditor {
     OzoneBucket bucket;
     try {
       bucket = client.getObjectStore().getS3Bucket(bucketName);
+      
+      // Check if the expected bucket owner header is present and matches the actual owner
+      String expectedBucketOwner = context.getHeaderString(EXPECTED_BUCKET_OWNER_HEADER);
+      if (expectedBucketOwner != null && !expectedBucketOwner.isEmpty()) {
+        String actualBucketOwner = bucket.getOwner();
+        if (actualBucketOwner == null || !actualBucketOwner.equals(expectedBucketOwner)) {
+          LOG.error("Bucket owner mismatch. Expected: {}, Actual: {}", 
+              expectedBucketOwner, actualBucketOwner);
+          throw newError(S3ErrorTable.BUCKET_OWNER_MISMATCH, bucketName);
+        }
+      }
     } catch (OMException ex) {
       if (ex.getResult() == ResultCodes.BUCKET_NOT_FOUND
           || ex.getResult() == ResultCodes.VOLUME_NOT_FOUND) {
@@ -494,6 +519,11 @@ public abstract class EndpointBase implements Auditor {
   @VisibleForTesting
   public void setRequestIdentifier(RequestIdentifier requestIdentifier) {
     this.requestIdentifier = requestIdentifier;
+  }
+
+  @VisibleForTesting
+  public void setContext(ContainerRequestContext context) {
+    this.context = context;
   }
 
   public OzoneClient getClient() {

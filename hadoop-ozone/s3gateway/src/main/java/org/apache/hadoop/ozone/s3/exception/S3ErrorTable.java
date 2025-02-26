@@ -148,6 +148,10 @@ public final class S3ErrorTable {
       "MalformedXML", "The XML you provided was not well-formed or did not " +
       "validate against our published schema", HTTP_BAD_REQUEST);
 
+  public static final OS3Exception BUCKET_OWNER_MISMATCH = new OS3Exception(
+      "BucketOwnerMismatch", "The bucket owner specified in the request " +
+      "does not match the actual owner of the bucket", HTTP_FORBIDDEN);
+
   public static final OS3Exception QUOTA_EXCEEDED = new OS3Exception(
       "QuotaExceeded", "The quota has been exceeded. " +
       "Please review your disk space or namespace usage and adjust accordingly.",
