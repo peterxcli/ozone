@@ -34,6 +34,7 @@ import org.apache.hadoop.hdds.cli.AbstractSubcommand;
 import org.apache.hadoop.hdds.cli.HddsVersionProvider;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
+import org.apache.hadoop.hdds.protocol.DatanodeDetails;
 import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
 import org.apache.hadoop.hdds.server.JsonUtils;
 import org.apache.hadoop.hdds.utils.HddsServerUtil;
@@ -41,6 +42,7 @@ import org.apache.hadoop.hdfs.server.datanode.StorageLocation;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.common.InconsistentStorageStateException;
 import org.apache.hadoop.ozone.container.common.helpers.ContainerMetrics;
+import org.apache.hadoop.ozone.container.common.helpers.ContainerUtils;
 import org.apache.hadoop.ozone.container.common.helpers.DatanodeVersionFile;
 import org.apache.hadoop.ozone.container.common.impl.ContainerData;
 import org.apache.hadoop.ozone.container.common.impl.ContainerSet;
@@ -70,19 +72,22 @@ import picocli.CommandLine.Command;
         ListSubcommand.class,
         InfoSubcommand.class,
         ExportSubcommand.class,
-        InspectSubcommand.class
+        InspectSubcommand.class,
+        ReplicateSubcommand.class
     })
 public class ContainerCommands extends AbstractSubcommand {
 
   private static final Logger LOG =
       LoggerFactory.getLogger(ContainerCommands.class);
 
+  private OzoneConfiguration conf;
+
   private MutableVolumeSet volumeSet;
 
   private ContainerController controller;
 
   public void loadContainersFromVolumes() throws IOException {
-    OzoneConfiguration conf = getOzoneConf();
+    conf = getOzoneConf();
 
     ContainerSet containerSet = new ContainerSet(null, 1000, true);
 
@@ -144,12 +149,29 @@ public class ContainerCommands extends AbstractSubcommand {
     LOG.info("All the container metadata is loaded.");
   }
 
+  public OzoneConfiguration getConf() {
+    return this.conf;
+  }
+
   public MutableVolumeSet getVolumeSet() {
     return this.volumeSet;
   }
 
   public ContainerController getController() {
     return this.controller;
+  }
+
+  public DatanodeDetails readDatanodeDetails() throws IOException {
+    String idFilePath = HddsServerUtil.getDatanodeIdFilePath(conf);
+    Preconditions.checkNotNull(idFilePath);
+    File idFile = new File(idFilePath);
+    DatanodeDetails details;
+    if (idFile.exists()) {
+      details = ContainerUtils.readDatanodeDetailsFrom(idFile);
+    } else {
+      throw new IOException("Datanode ID file not found. Please start the datanode first.");
+    }
+    return details;
   }
 
   private String getClusterId(String storageDir) throws IOException {
