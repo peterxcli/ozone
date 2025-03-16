@@ -41,7 +41,7 @@ public class RoundRobinVolumeChoosingPolicy implements VolumeChoosingPolicy {
   private AtomicInteger nextVolumeIndex = new AtomicInteger(0);
 
   @Override
-  public HddsVolume chooseVolume(List<HddsVolume> volumes,
+  public VolumeSpaceHandle chooseVolume(List<HddsVolume> volumes,
       long maxContainerSize) throws IOException {
 
     // No volumes available to choose from
@@ -68,7 +68,7 @@ public class RoundRobinVolumeChoosingPolicy implements VolumeChoosingPolicy {
       if (hasEnoughSpace) {
         logIfSomeVolumesOutOfSpace(filter, LOG);
         nextVolumeIndex.compareAndSet(nextIndex, currentVolumeIndex);
-        return volume;
+        return new VolumeSpaceHandle(volume, maxContainerSize);
       }
 
       if (currentVolumeIndex == startVolumeIndex) {

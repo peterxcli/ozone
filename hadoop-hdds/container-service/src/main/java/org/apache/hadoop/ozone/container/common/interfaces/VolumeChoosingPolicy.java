@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.List;
 import org.apache.hadoop.hdds.annotation.InterfaceAudience;
 import org.apache.hadoop.ozone.container.common.volume.HddsVolume;
+import org.apache.hadoop.ozone.container.common.volume.VolumeSpaceHandle;
 
 /**
  * This interface specifies the policy for choosing volumes to store replicas.
@@ -29,7 +30,7 @@ import org.apache.hadoop.ozone.container.common.volume.HddsVolume;
 public interface VolumeChoosingPolicy {
 
   /**
-   * Choose a volume to place a container,
+   * Choose a volume to place a container and reserve the required space,
    * given a list of volumes and the max container size sought for storage.
    *
    * The implementations of this interface must be thread-safe.
@@ -37,9 +38,10 @@ public interface VolumeChoosingPolicy {
    * @param volumes - a list of available volumes.
    * @param maxContainerSize - the maximum size of the container for which a
    *                         volume is sought.
-   * @return the chosen volume.
+   * @return a VolumeSpaceHandle that reserves the requested space on the chosen
+   *         volume. The handle must be closed when the space is no longer needed.
    * @throws IOException when disks are unavailable or are full.
    */
-  HddsVolume chooseVolume(List<HddsVolume> volumes, long maxContainerSize)
+  VolumeSpaceHandle chooseVolume(List<HddsVolume> volumes, long maxContainerSize)
       throws IOException;
 }

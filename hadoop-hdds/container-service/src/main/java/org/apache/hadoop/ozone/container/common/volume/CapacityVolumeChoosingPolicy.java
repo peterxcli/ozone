@@ -48,7 +48,7 @@ public class CapacityVolumeChoosingPolicy implements VolumeChoosingPolicy {
   private final Random random = new Random();
 
   @Override
-  public HddsVolume chooseVolume(List<HddsVolume> volumes,
+  public VolumeSpaceHandle chooseVolume(List<HddsVolume> volumes,
       long maxContainerSize) throws IOException {
 
     // No volumes available to choose from
@@ -69,8 +69,9 @@ public class CapacityVolumeChoosingPolicy implements VolumeChoosingPolicy {
     }
 
     int count = volumesWithEnoughSpace.size();
+    HddsVolume selectedVolume;
     if (count == 1) {
-      return volumesWithEnoughSpace.get(0);
+      selectedVolume = volumesWithEnoughSpace.get(0);
     } else {
       // Even if we don't have too many volumes in volumesWithEnoughSpace, this
       // algorithm will still help us choose the volume with larger
@@ -93,7 +94,8 @@ public class CapacityVolumeChoosingPolicy implements VolumeChoosingPolicy {
           - firstVolume.getCommittedBytes();
       long secondAvailable = secondVolume.getCurrentUsage().getAvailable()
           - secondVolume.getCommittedBytes();
-      return firstAvailable < secondAvailable ? secondVolume : firstVolume;
+      selectedVolume = firstAvailable < secondAvailable ? secondVolume : firstVolume;
     }
+    return new VolumeSpaceHandle(selectedVolume, maxContainerSize);
   }
 }
