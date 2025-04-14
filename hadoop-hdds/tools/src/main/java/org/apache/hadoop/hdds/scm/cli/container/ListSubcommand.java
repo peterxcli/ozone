@@ -163,21 +163,19 @@ public class ListSubcommand extends ScmSubcommand {
   }
 
   private void listAllContainers(ScmClient scmClient, SequenceWriter writer,
-                                 int batchSize, ReplicationConfig repConfig)
+      int batchSize, ReplicationConfig repConfig)
       throws IOException {
     long currentStartId = startId;
     int fetchedCount;
 
     do {
-      ContainerListResult result =
-          scmClient.listContainer(currentStartId, batchSize, state, type, repConfig);
+      ContainerListResult result = scmClient.listContainer(currentStartId, batchSize, state, type, repConfig);
       fetchedCount = result.getContainerInfoList().size();
 
       writeContainers(writer, result.getContainerInfoList());
 
       if (fetchedCount > 0) {
-        currentStartId =
-            result.getContainerInfoList().get(fetchedCount - 1).getContainerID() + 1;
+        currentStartId = result.getContainerInfoList().get(fetchedCount - 1).getContainerID() + 1;
       }
     } while (fetchedCount > 0);
   }

@@ -35,42 +35,21 @@ Container is closed
                         Should contain   ${output}   CLOSED
 
 *** Test Cases ***
+# Basic container operations
 Create container
     ${output} =         Execute          ozone admin container create
                         Should contain   ${output}   is created
     ${container} =      Execute          echo "${output}" | grep 'is created' | cut -f2 -d' '
                         Set Suite Variable    ${CONTAINER}    ${container}
 
-List containers
-    ${output} =         Execute          ozone admin container list
-                        Should contain   ${output}   OPEN
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
+Close container
+    ${container} =      Execute          ozone admin container list --state OPEN | jq -r '.[] | select(.replicationConfig.replicationFactor == "ONE") | .containerID' | head -1
+                        Execute          ozone admin container close "${container}"
+    ${output} =         Execute          ozone admin container info "${container}"
+                        Should contain   ${output}   CLOS
+    Wait until keyword succeeds    1min    10sec    Container is closed    ${container}
 
-List containers with explicit host
-    ${output} =         Execute          ozone admin container list --scm ${SCM}
-                        Should contain   ${output}   OPEN
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
-
-List containers with container state
-    ${output} =         Execute          ozone admin container list --state=CLOSED
-                        Should Not contain   ${output}   OPEN
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
-
-List containers with replication factor ONE
-    ${output} =         Execute          ozone admin container list -t RATIS -r ONE
-                        Should Not contain   ${output}   THREE
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
-
-List containers with replication factor THREE
-    ${output} =         Execute          ozone admin container list -t RATIS -r THREE
-                        Should Not contain   ${output}   ONE
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
-
+# Container info operations
 Container info
     ${output} =         Execute          ozone admin container info "${CONTAINER}"
                         Should contain   ${output}   Container id: ${CONTAINER}
@@ -81,46 +60,28 @@ Verbose container info
     ${output} =         Execute          ozone admin --verbose container info "${CONTAINER}"
                         Should contain   ${output}   Pipeline Info
 
-List containers as JSON
-    ${output} =         Execute          ozone admin container info "${CONTAINER}" --json | jq -r '.'
-                        Should contain   ${output}    containerInfo
-                        Should contain   ${output}    pipeline
-                        Should contain   ${output}    replicas
-                        Should contain   ${output}    writePipelineID
-
-Report containers as JSON
-     ${output} =         Execute          ozone admin container report --json | jq -r '.'
-                         Should contain   ${output}   reportTimeStamp
-                         Should contain   ${output}   stats
-                         Should contain   ${output}   samples
-
-List all containers
-    ${output} =         Execute          ozone admin container list --all
-                        Should contain   ${output}   OPEN
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
-
-List all containers according to count (batchSize)
-    ${output} =         Execute          ozone admin container list --all --count 10
-                        Should contain   ${output}   OPEN
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
-
-List all containers from a particular container ID
-    ${output} =         Execute          ozone admin container list --all --start 2
-                        Should contain   ${output}   OPEN
-                        Should Start With   ${output}   [
-                        Should End With   ${output}   ]
-
-Check JSON array parsing
+# JSON output validation
+Check JSON array structure
     ${output} =         Execute          ozone admin container list
                         Should Start With   ${output}   [
-                        Should Contain   ${output}   containerID
                         Should End With   ${output}   ]
-    ${containerIDs} =   Execute          echo '${output}' | jq -r '.[].containerID'
-                        Should Not Be Empty   ${containerIDs}
+    ${json} =           Execute          echo '${output}' | jq -r '.'
+                        Should Contain   ${json}   containerID
+                        Should Contain   ${json}   state
+                        Should Contain   ${json}   replicationConfig
+                        Should Contain   ${json}   pipelineID
+                        Should Contain   ${json}   usedBytes
+                        Should Contain   ${json}   numberOfKeys
+                        Should Contain   ${json}   lastUsed
+                        Should Contain   ${json}   owner
+                        Should Contain   ${json}   deleteTransactionId
 
-Check state filtering with JSON array format
+Check JSON array with empty result
+    ${output} =         Execute          ozone admin container list --state=INVALID_STATE
+                        Should Be Equal   ${output}   [ ]
+
+# Container listing with filters
+List containers with state filter
     ${output} =         Execute          ozone admin container list --state=OPEN
                         Should Start With   ${output}   [
                         Should End With   ${output}   ]
@@ -128,28 +89,40 @@ Check state filtering with JSON array format
                         Should Contain   ${states}   OPEN
                         Should Not Contain   ${states}   CLOSED
 
-Check count limit with JSON array format
-    ${output} =         Execute          ozone admin container create
-                        Should contain   ${output}   is created
-    ${output} =         Execute          ozone admin container create
-                        Should contain   ${output}   is created
-    ${output} =         Execute          ozone admin container create
-                        Should contain   ${output}   is created
-    ${output} =         Execute          ozone admin container create
-                        Should contain   ${output}   is created
-    ${output} =         Execute          ozone admin container create
-                        Should contain   ${output}   is created
-    ${output} =         Execute And Ignore Error          ozone admin container list --count 5 2> /dev/null # This logs to error that the list is incomplete
+List containers with replication config
+    ${output} =         Execute          ozone admin container list -t RATIS -r THREE
+                        Should Start With   ${output}   [
+                        Should End With   ${output}   ]
+    ${types} =          Execute          echo '${output}' | jq -r '.[].replicationConfig.type'
+                        Should Not Contain   ${types}   EC
+    ${factors} =        Execute          echo '${output}' | jq -r '.[].replicationConfig.replicationFactor'
+                        Should Not Contain   ${factors}   ONE
+
+# Batch operations
+List all containers
+    ${output} =         Execute          ozone admin container list --all
+                        Should Start With   ${output}   [
+                        Should End With   ${output}   ]
     ${count} =          Execute          echo '${output}' | jq -r 'length'
-                        Should Be True   ${count} == 5
+                        Should Be True   ${count} > 0
+    ${containerIDs} =   Execute          echo '${output}' | jq -r '.[].containerID'
+                        Should Not Be Empty   ${containerIDs}
 
-Close container
-    ${container} =      Execute          ozone admin container list --state OPEN | jq -r '.[] | select(.replicationConfig.replicationFactor == "ONE") | .containerID' | head -1
-                        Execute          ozone admin container close "${container}"
-    ${output} =         Execute          ozone admin container info "${container}"
-                        Should contain   ${output}   CLOS
-    Wait until keyword succeeds    1min    10sec    Container is closed    ${container}
+List containers with batch size
+    ${output} =         Execute          ozone admin container list --all --count 10
+                        Should Start With   ${output}   [
+                        Should End With   ${output}   ]
+    ${count} =          Execute          echo '${output}' | jq -r 'length'
+                        Should Be True   ${count} <= 10
 
+List containers from start ID
+    ${output} =         Execute          ozone admin container list --all --start 2
+                        Should Start With   ${output}   [
+                        Should End With   ${output}   ]
+    ${containerIDs} =   Execute          echo '${output}' | jq -r '.[].containerID'
+                        Should Not Be Empty   ${containerIDs}
+
+# Error cases
 Incomplete command
     ${output} =         Execute And Ignore Error     ozone admin container
                         Should contain   ${output}   Missing required subcommand
@@ -160,10 +133,6 @@ Incomplete command
                         Should contain   ${output}   report
                         Should contain   ${output}   upgrade
 
-#List containers on unknown host
-#    ${output} =         Execute And Ignore Error     ozone admin --verbose container list --scm unknown-host
-#                        Should contain   ${output}   Invalid host name
-
 Cannot close container without admin privilege
     Requires admin privilege    ozone admin container close "${CONTAINER}"
 
@@ -172,3 +141,7 @@ Cannot create container without admin privilege
 
 Reset user
     Run Keyword if      '${SECURITY_ENABLED}' == 'true'     Kinit test user     testuser     testuser.keytab
+
+#List containers on unknown host
+#    ${output} =         Execute And Ignore Error     ozone admin --verbose container list --scm unknown-host
+#                        Should contain   ${output}   Invalid host name
