@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -101,6 +102,8 @@ public class MockNodeManager implements NodeManager {
   private final List<DatanodeDetails> healthyNodes;
   private final List<DatanodeDetails> staleNodes;
   private final List<DatanodeDetails> deadNodes;
+  private final List<DatanodeDetails> decommissionedNodes;
+  private final List<DatanodeDetails> maintenanceNodes;
   private final Map<DatanodeDetails, SCMNodeStat> nodeMetricMap;
   private final SCMNodeStat aggregateStat;
   private final Map<UUID, List<SCMCommand<?>>> commandMap;
@@ -111,17 +114,25 @@ public class MockNodeManager implements NodeManager {
   private int numHealthyDisksPerDatanode;
   private int numRaftLogDisksPerDatanode;
   private int numPipelinePerDatanode;
+  private final Map<DatanodeID, DatanodeInfo> nodeMap;
+  private final Map<DatanodeID, Set<PipelineID>> pipelineMap;
+  private final Map<DatanodeID, Set<ContainerID>> containerMap;
 
   {
     this.healthyNodes = new LinkedList<>();
     this.staleNodes = new LinkedList<>();
     this.deadNodes = new LinkedList<>();
+    this.decommissionedNodes = new LinkedList<>();
+    this.maintenanceNodes = new LinkedList<>();
     this.nodeMetricMap = new HashMap<>();
     this.node2PipelineMap = new Node2PipelineMap();
     this.node2ContainerMap = new NodeStateMap();
     this.dnsToUuidMap = new ConcurrentHashMap<>();
     this.aggregateStat = new SCMNodeStat();
     this.clusterMap = new NetworkTopologyImpl(new OzoneConfiguration());
+    this.nodeMap = new ConcurrentHashMap<>();
+    this.pipelineMap = new ConcurrentHashMap<>();
+    this.containerMap = new ConcurrentHashMap<>();
   }
 
   public MockNodeManager(NetworkTopologyImpl clusterMap,
@@ -293,6 +304,16 @@ public class MockNodeManager implements NodeManager {
       return deadNodes;
     }
 
+    if (opState == NodeOperationalState.DECOMMISSIONING ||
+        opState == NodeOperationalState.DECOMMISSIONED) {
+      return decommissionedNodes;
+    }
+
+    if (opState == NodeOperationalState.ENTERING_MAINTENANCE ||
+        opState == NodeOperationalState.IN_MAINTENANCE) {
+      return maintenanceNodes;
+    }
+
     if (nodestate == null) {
       return new ArrayList<>(nodeMetricMap.keySet());
     }
@@ -440,6 +461,7 @@ public class MockNodeManager implements NodeManager {
   @Override
   public void setNodeOperationalState(DatanodeDetails datanodeDetails,
       HddsProtos.NodeOperationalState newState) throws NodeNotFoundException {
+    setNodeOperationalState(datanodeDetails, newState, 0);
   }
 
   /**
@@ -451,6 +473,37 @@ public class MockNodeManager implements NodeManager {
   public void setNodeOperationalState(DatanodeDetails datanodeDetails,
       HddsProtos.NodeOperationalState newState, long opStateExpiryEpocSec)
       throws NodeNotFoundException {
+    if (!nodeMetricMap.containsKey(datanodeDetails)) {
+      throw new NodeNotFoundException(datanodeDetails.getID());
+    }
+
+    // Remove from all state lists
+    healthyNodes.remove(datanodeDetails);
+    staleNodes.remove(datanodeDetails);
+    deadNodes.remove(datanodeDetails);
+    decommissionedNodes.remove(datanodeDetails);
+    maintenanceNodes.remove(datanodeDetails);
+
+    // Add to appropriate state list
+    switch (newState) {
+    case IN_SERVICE:
+      healthyNodes.add(datanodeDetails);
+      break;
+    case DECOMMISSIONING:
+    case DECOMMISSIONED:
+      decommissionedNodes.add(datanodeDetails);
+      break;
+    case ENTERING_MAINTENANCE:
+    case IN_MAINTENANCE:
+      maintenanceNodes.add(datanodeDetails);
+      break;
+    default:
+      throw new IllegalArgumentException("Unknown operational state: " + newState);
+    }
+
+    // Update the node's persisted state
+    datanodeDetails.setPersistedOpState(newState);
+    datanodeDetails.setPersistedOpStateExpiryEpochSec(opStateExpiryEpocSec);
   }
 
   /**
@@ -460,7 +513,12 @@ public class MockNodeManager implements NodeManager {
    */
   @Override
   public Set<PipelineID> getPipelines(DatanodeDetails dnId) {
-    return node2PipelineMap.getPipelines(dnId.getUuid());
+    Set<PipelineID> p = pipelineMap.get(dnId.getID());
+    if (p == null || p.isEmpty()) {
+      return node2PipelineMap.getPipelines(dnId.getUuid());
+    } else {
+      return p;
+    }
   }
 
   /**
@@ -620,7 +678,7 @@ public class MockNodeManager implements NodeManager {
    */
   public void setContainers(DatanodeDetails uuid, Set<ContainerID> containerIds)
       throws NodeNotFoundException {
-    node2ContainerMap.setContainersForTesting(uuid.getID(), containerIds);
+    containerMap.put(uuid.getID(), containerIds);
   }
 
   /**
@@ -630,6 +688,10 @@ public class MockNodeManager implements NodeManager {
    */
   @Override
   public Set<ContainerID> getContainers(DatanodeDetails uuid) throws NodeNotFoundException {
+    Set<ContainerID> containers = containerMap.get(uuid.getID());
+    if (containers != null) {
+      return containers;
+    }
     return node2ContainerMap.getContainers(uuid.getID());
   }
 
@@ -699,7 +761,8 @@ public class MockNodeManager implements NodeManager {
                                     NodeReportProto nodeReport,
                                     PipelineReportsProto pipelineReportsProto,
                                     LayoutVersionProto layoutInfo) {
-    final DatanodeInfo info = new DatanodeInfo(datanodeDetails, NodeStatus.inServiceHealthy(), layoutInfo);
+    final DatanodeInfo info = new DatanodeInfo(datanodeDetails, 
+        NodeStatus.inServiceHealthy(), layoutInfo);
     try {
       node2ContainerMap.addNode(info);
       addEntryTodnsToUuidMap(datanodeDetails.getIpAddress(),
@@ -708,8 +771,9 @@ public class MockNodeManager implements NodeManager {
         datanodeDetails.setNetworkName(datanodeDetails.getUuidString());
         clusterMap.add(datanodeDetails);
       }
+      nodeMap.put(datanodeDetails.getID(), info);
     } catch (NodeAlreadyExistsException e) {
-      e.printStackTrace();
+      LOG.warn("Node already exists: {}", datanodeDetails.getUuidString());
     }
     return null;
   }
@@ -760,13 +824,29 @@ public class MockNodeManager implements NodeManager {
       }
       nodes.put(opState.name(), states);
     }
-    // At the moment MockNodeManager is not aware of decommission and
-    // maintenance states, therefore loop over all nodes and assume all nodes
-    // are IN_SERVICE. This will be fixed as part of HDDS-2673
-    for (HddsProtos.NodeState state : HddsProtos.NodeState.values()) {
+
+    // Count nodes in each state
+    for (DatanodeDetails dn : healthyNodes) {
       nodes.get(NodeOperationalState.IN_SERVICE.name())
-          .compute(state.name(), (k, v) -> v + 1);
+          .compute(HEALTHY.name(), (k, v) -> v + 1);
     }
+    for (DatanodeDetails dn : staleNodes) {
+      nodes.get(NodeOperationalState.IN_SERVICE.name())
+          .compute(STALE.name(), (k, v) -> v + 1);
+    }
+    for (DatanodeDetails dn : deadNodes) {
+      nodes.get(NodeOperationalState.IN_SERVICE.name())
+          .compute(DEAD.name(), (k, v) -> v + 1);
+    }
+    for (DatanodeDetails dn : decommissionedNodes) {
+      nodes.get(NodeOperationalState.DECOMMISSIONED.name())
+          .compute(HEALTHY.name(), (k, v) -> v + 1);
+    }
+    for (DatanodeDetails dn : maintenanceNodes) {
+      nodes.get(NodeOperationalState.IN_MAINTENANCE.name())
+          .compute(HEALTHY.name(), (k, v) -> v + 1);
+    }
+
     return nodes;
   }
 
@@ -908,10 +988,11 @@ public class MockNodeManager implements NodeManager {
     public static final long HEALTHY = 1;
     public static final long STALE = 2;
     public static final long DEAD = 3;
+    public static final long DECOMMISSIONED = 4;
+    public static final long MAINTENANCE = 5;
 
     private long capacity;
     private long used;
-
     private long currentState;
 
     /**
@@ -960,5 +1041,33 @@ public class MockNodeManager implements NodeManager {
       this.currentState = currentState;
     }
 
+  }
+
+  /**
+   * Set the number of pipelines for the given node. This simply generates
+   * new PipelineID objects and places them in a set. No actual pipelines are
+   * created.
+   *
+   * Setting the count to zero effectively deletes the pipelines for the node
+   *
+   * @param dd The DatanodeDetails for which to create the pipelines
+   * @param count The number of pipelines to create or zero to delete all
+   *              pipelines
+   */
+  public void setPipelines(DatanodeDetails dd, int count) {
+    Set<PipelineID> pipelines = new HashSet<>();
+    for (int i = 0; i < count; i++) {
+      pipelines.add(PipelineID.randomId());
+    }
+    pipelineMap.put(dd.getID(), pipelines);
+  }
+
+  public void setNodeStatus(DatanodeDetails dd, NodeStatus status) {
+    dd.setPersistedOpState(status.getOperationalState());
+    dd.setPersistedOpStateExpiryEpochSec(status.getOpStateExpiryEpochSeconds());
+    DatanodeInfo dni = nodeMap.get(dd.getID());
+    if (dni != null) {
+      dni.setNodeStatus(status);
+    }
   }
 }
