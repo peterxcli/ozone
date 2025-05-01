@@ -1,11 +1,10 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,12 +13,18 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
 
 package org.apache.hadoop.ozone.freon;
 
+import static org.apache.hadoop.ozone.freon.KeyGeneratorUtil.FILE_DIR_SEPARATOR;
+import static org.apache.hadoop.ozone.freon.KeyGeneratorUtil.MD5;
+import static org.apache.hadoop.ozone.freon.KeyGeneratorUtil.PURE_INDEX;
+
 import com.codahale.metrics.Timer;
+import java.util.HashMap;
+import java.util.concurrent.Callable;
+import java.util.function.Function;
 import org.apache.hadoop.hdds.cli.HddsVersionProvider;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.hdds.conf.StorageSize;
@@ -29,14 +34,6 @@ import org.kohsuke.MetaInfServices;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
-
-import java.util.concurrent.Callable;
-import java.util.function.Function;
-import java.util.HashMap;
-
-import static org.apache.hadoop.ozone.freon.KeyGeneratorUtil.PURE_INDEX;
-import static org.apache.hadoop.ozone.freon.KeyGeneratorUtil.MD5;
-import static org.apache.hadoop.ozone.freon.KeyGeneratorUtil.FILE_DIR_SEPARATOR;
 
 /**
  * Ozone range keys generator for performance test.
@@ -74,7 +71,6 @@ public class RangeKeysGenerator extends BaseFreonGenerator
           defaultValue = "0")
   private int startIndex;
 
-
   @CommandLine.Option(names = {"-k", "--key-encode"},
           description = "The algorithm to generate key names. " +
                   "Options are pureIndex, md5",
@@ -103,7 +99,6 @@ public class RangeKeysGenerator extends BaseFreonGenerator
   private OzoneClient[] ozoneClients;
   private ContentGenerator contentGenerator;
   private Timer timer;
-
 
   @Override
   public Void call() throws Exception {
@@ -152,7 +147,6 @@ public class RangeKeysGenerator extends BaseFreonGenerator
       return null;
     });
   }
-
 
   public void loopRunner(Function<Integer, String> keyNameGeneratorfunc,
                          OzoneClient client, int start, int end)

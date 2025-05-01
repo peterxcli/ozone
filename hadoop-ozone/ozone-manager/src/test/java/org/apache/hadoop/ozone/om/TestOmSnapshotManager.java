@@ -1,11 +1,10 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- *  with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,32 +13,37 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
  */
 
 package org.apache.hadoop.ozone.om;
 
-import com.google.common.collect.ImmutableMap;
-import org.apache.hadoop.hdds.HddsConfigKeys;
-import org.apache.hadoop.hdds.conf.OzoneConfiguration;
-import org.apache.hadoop.hdds.scm.HddsWhiteboxTestUtils;
-import org.apache.hadoop.hdds.utils.db.DBStore;
-import org.apache.hadoop.hdds.utils.db.RDBBatchOperation;
-import org.apache.hadoop.hdds.utils.db.Table;
-import org.apache.hadoop.ozone.om.exceptions.OMException;
-import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
-import org.apache.hadoop.ozone.om.helpers.OmVolumeArgs;
-import org.apache.hadoop.ozone.om.helpers.SnapshotInfo;
-import org.apache.hadoop.ozone.om.snapshot.OmSnapshotUtils;
-import org.apache.hadoop.util.Time;
-import org.apache.ozone.test.GenericTestUtils;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
-import org.junit.jupiter.api.io.TempDir;
+import static org.apache.commons.io.file.PathUtils.copyDirectory;
+import static org.apache.hadoop.hdds.utils.HAUtils.getExistingSstFiles;
+import static org.apache.hadoop.ozone.OzoneConsts.OM_CHECKPOINT_DIR;
+import static org.apache.hadoop.ozone.OzoneConsts.OM_DB_NAME;
+import static org.apache.hadoop.ozone.OzoneConsts.OM_KEY_PREFIX;
+import static org.apache.hadoop.ozone.OzoneConsts.OM_SNAPSHOT_CHECKPOINT_DIR;
+import static org.apache.hadoop.ozone.OzoneConsts.SNAPSHOT_CANDIDATE_DIR;
+import static org.apache.hadoop.ozone.OzoneConsts.SNAPSHOT_INFO_TABLE;
+import static org.apache.hadoop.ozone.om.OMDBCheckpointServlet.processFile;
+import static org.apache.hadoop.ozone.om.OmSnapshotManager.OM_HARDLINK_FILE;
+import static org.apache.hadoop.ozone.om.codec.OMDBDefinition.BUCKET_TABLE;
+import static org.apache.hadoop.ozone.om.codec.OMDBDefinition.VOLUME_TABLE;
+import static org.apache.hadoop.ozone.om.snapshot.OmSnapshotUtils.getINode;
+import static org.apache.hadoop.ozone.om.snapshot.OmSnapshotUtils.truncateFileName;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.google.common.collect.ImmutableMap;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -55,32 +59,29 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
-
-import static org.apache.commons.io.file.PathUtils.copyDirectory;
-import static org.apache.hadoop.hdds.utils.HAUtils.getExistingSstFiles;
-import static org.apache.hadoop.ozone.OzoneConsts.OM_CHECKPOINT_DIR;
-import static org.apache.hadoop.ozone.OzoneConsts.OM_DB_NAME;
-import static org.apache.hadoop.ozone.OzoneConsts.OM_KEY_PREFIX;
-import static org.apache.hadoop.ozone.OzoneConsts.OM_SNAPSHOT_CHECKPOINT_DIR;
-import static org.apache.hadoop.ozone.OzoneConsts.SNAPSHOT_CANDIDATE_DIR;
-import static org.apache.hadoop.ozone.om.OMDBCheckpointServlet.processFile;
-import static org.apache.hadoop.ozone.OzoneConsts.SNAPSHOT_INFO_TABLE;
-import static org.apache.hadoop.ozone.om.OmMetadataManagerImpl.BUCKET_TABLE;
-import static org.apache.hadoop.ozone.om.OmMetadataManagerImpl.VOLUME_TABLE;
-import static org.apache.hadoop.ozone.om.OmSnapshotManager.OM_HARDLINK_FILE;
-import static org.apache.hadoop.ozone.om.snapshot.OmSnapshotUtils.getINode;
-import static org.apache.hadoop.ozone.om.snapshot.OmSnapshotUtils.truncateFileName;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import java.util.concurrent.TimeoutException;
+import org.apache.hadoop.hdds.HddsConfigKeys;
+import org.apache.hadoop.hdds.conf.OzoneConfiguration;
+import org.apache.hadoop.hdds.scm.HddsWhiteboxTestUtils;
+import org.apache.hadoop.hdds.utils.db.DBStore;
+import org.apache.hadoop.hdds.utils.db.RDBBatchOperation;
+import org.apache.hadoop.hdds.utils.db.RDBStore;
+import org.apache.hadoop.hdds.utils.db.TypedTable;
+import org.apache.hadoop.ozone.om.exceptions.OMException;
+import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
+import org.apache.hadoop.ozone.om.helpers.OmVolumeArgs;
+import org.apache.hadoop.ozone.om.helpers.SnapshotInfo;
+import org.apache.hadoop.ozone.om.snapshot.OmSnapshotUtils;
+import org.apache.hadoop.util.Time;
+import org.apache.ozone.test.GenericTestUtils;
+import org.apache.ozone.test.GenericTestUtils.LogCapturer;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.event.Level;
 
 /**
  * Unit test ozone snapshot manager.
@@ -111,6 +112,8 @@ class TestOmSnapshotManager {
     // Only allow one entry in cache so each new one causes an eviction
     configuration.setInt(
         OMConfigKeys.OZONE_OM_SNAPSHOT_CACHE_MAX_SIZE, 1);
+    configuration.setBoolean(
+        OMConfigKeys.OZONE_OM_SNAPSHOT_ROCKSDB_METRICS_ENABLED, false);
 
     OmTestManagers omTestManagers = new OmTestManagers(configuration);
     om = omTestManagers.getOzoneManager();
@@ -125,8 +128,7 @@ class TestOmSnapshotManager {
   public void testSnapshotFeatureFlagSafetyCheck() throws IOException {
     // Verify that the snapshot feature config safety check method
     // is returning the expected value.
-
-    Table<String, SnapshotInfo> snapshotInfoTable = mock(Table.class);
+    final TypedTable<String, SnapshotInfo> snapshotInfoTable = mock(TypedTable.class);
     HddsWhiteboxTestUtils.setInternalState(
         om.getMetadataManager(), SNAPSHOT_INFO_TABLE, snapshotInfoTable);
 
@@ -138,12 +140,15 @@ class TestOmSnapshotManager {
   }
 
   @Test
-  public void testCloseOnEviction() throws IOException {
+  public void testCloseOnEviction() throws IOException,
+      InterruptedException, TimeoutException {
 
+    GenericTestUtils.setLogLevel(RDBStore.class, Level.DEBUG);
+    LogCapturer logCapture = LogCapturer.captureLogs(RDBStore.class);
     // set up db tables
-    Table<String, OmVolumeArgs> volumeTable = mock(Table.class);
-    Table<String, OmBucketInfo> bucketTable = mock(Table.class);
-    Table<String, SnapshotInfo> snapshotInfoTable = mock(Table.class);
+    final TypedTable<String, OmVolumeArgs> volumeTable = mock(TypedTable.class);
+    final TypedTable<String, OmBucketInfo> bucketTable = mock(TypedTable.class);
+    final TypedTable<String, SnapshotInfo> snapshotInfoTable = mock(TypedTable.class);
     HddsWhiteboxTestUtils.setInternalState(
         om.getMetadataManager(), VOLUME_TABLE, volumeTable);
     HddsWhiteboxTestUtils.setInternalState(
@@ -216,6 +221,12 @@ class TestOmSnapshotManager {
 
     // confirm store was closed
     verify(firstSnapshotStore, timeout(3000).times(1)).close();
+
+    // Verify RocksDBStoreMetrics registration is skipped.
+    String msg = "Skipped Metrics registration during RocksDB init";
+    GenericTestUtils.waitFor(() -> {
+      return logCapture.getOutput().contains(msg);
+    }, 100, 30_000);
   }
 
   @BeforeEach
@@ -318,7 +329,6 @@ class TestOmSnapshotManager {
         getINode(f1FileLink.toPath()), "link matches original file");
   }
 
-
   @Test
   public void testGetSnapshotInfo() throws IOException {
     SnapshotInfo s1 = createSnapshotInfo("vol", "buck");
@@ -341,6 +351,7 @@ class TestOmSnapshotManager {
         () -> om.getOmSnapshotManager().getSnapshot(s2.getSnapshotId()));
     assertEquals(OMException.ResultCodes.FILE_NOT_FOUND, ome.getResult());
   }
+
   /*
    * Test that exclude list is generated correctly.
    */
@@ -642,11 +653,10 @@ class TestOmSnapshotManager {
   @Test
   public void testCreateSnapshotIdempotent() throws Exception {
     // set up db tables
-    GenericTestUtils.LogCapturer logCapturer = GenericTestUtils.LogCapturer
-        .captureLogs(OmSnapshotManager.LOG);
-    Table<String, OmVolumeArgs> volumeTable = mock(Table.class);
-    Table<String, OmBucketInfo> bucketTable = mock(Table.class);
-    Table<String, SnapshotInfo> snapshotInfoTable = mock(Table.class);
+    LogCapturer logCapturer = LogCapturer.captureLogs(OmSnapshotManager.class);
+    final TypedTable<String, OmVolumeArgs> volumeTable = mock(TypedTable.class);
+    final TypedTable<String, OmBucketInfo> bucketTable = mock(TypedTable.class);
+    final TypedTable<String, SnapshotInfo> snapshotInfoTable = mock(TypedTable.class);
     HddsWhiteboxTestUtils.setInternalState(
         om.getMetadataManager(), VOLUME_TABLE, volumeTable);
     HddsWhiteboxTestUtils.setInternalState(

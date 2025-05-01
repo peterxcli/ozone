@@ -1,28 +1,31 @@
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with this
- * work for additional information regarding copyright ownership.  The ASF
- * licenses this file to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations under
- * the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package org.apache.hadoop.ozone.freon.containergenerator;
 
+import static org.apache.hadoop.ozone.OzoneAcl.AclScope.ACCESS;
+import static org.apache.hadoop.ozone.OzoneConsts.OM_DB_NAME;
+
+import com.codahale.metrics.Timer;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
-
 import org.apache.hadoop.hdds.cli.HddsVersionProvider;
 import org.apache.hadoop.hdds.client.BlockID;
 import org.apache.hadoop.hdds.client.RatisReplicationConfig;
@@ -32,12 +35,11 @@ import org.apache.hadoop.hdds.protocol.proto.HddsProtos.ReplicationFactor;
 import org.apache.hadoop.hdds.utils.db.BatchOperation;
 import org.apache.hadoop.hdds.utils.db.DBStore;
 import org.apache.hadoop.hdds.utils.db.DBStoreBuilder;
-import org.apache.hadoop.hdds.utils.db.RocksDBConfiguration;
 import org.apache.hadoop.hdds.utils.db.Table;
 import org.apache.hadoop.ozone.OzoneAcl;
 import org.apache.hadoop.ozone.freon.FreonSubcommand;
 import org.apache.hadoop.ozone.om.OMStorage;
-import org.apache.hadoop.ozone.om.OmMetadataManagerImpl;
+import org.apache.hadoop.ozone.om.codec.OMDBDefinition;
 import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo.Builder;
@@ -47,11 +49,6 @@ import org.apache.hadoop.ozone.om.helpers.OmVolumeArgs;
 import org.apache.hadoop.ozone.security.acl.IAccessAuthorizer;
 import org.apache.hadoop.ozone.storage.proto.OzoneManagerStorageProtos.PersistedUserVolumeInfo;
 import org.apache.hadoop.util.Time;
-
-import com.codahale.metrics.Timer;
-import static org.apache.hadoop.ozone.OzoneAcl.AclScope.ACCESS;
-import static org.apache.hadoop.ozone.OzoneConsts.OM_DB_NAME;
-
 import org.kohsuke.MetaInfServices;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -97,25 +94,13 @@ public class GeneratorOm extends BaseGenerator implements
 
     File metaDir = OMStorage.getOmDbDir(config);
 
-    RocksDBConfiguration rocksDBConfiguration =
-        config.getObject(RocksDBConfiguration.class);
+    omDb = DBStoreBuilder.newBuilder(config, OMDBDefinition.get(), OM_DB_NAME, metaDir.toPath()).build();
 
-    DBStoreBuilder dbStoreBuilder =
-        DBStoreBuilder.newBuilder(config,
-            rocksDBConfiguration)
-            .setName(OM_DB_NAME)
-            .setPath(metaDir.toPath());
-
-    OmMetadataManagerImpl.addOMTablesAndCodecs(dbStoreBuilder);
-
-    omDb = dbStoreBuilder.build();
 
     // initialization: create one bucket and volume in OM.
     writeOmBucketVolume();
 
-    omKeyTable = omDb.getTable(OmMetadataManagerImpl.KEY_TABLE, String.class,
-        OmKeyInfo.class);
-
+    omKeyTable = OMDBDefinition.KEY_TABLE_DEF.getTable(omDb);
     timer = getMetrics().timer("om-generator");
     runTests(this::writeOmKeys);
 
@@ -144,9 +129,7 @@ public class GeneratorOm extends BaseGenerator implements
 
   private void writeOmBucketVolume() throws IOException {
 
-    Table<String, OmVolumeArgs> volTable =
-        omDb.getTable(OmMetadataManagerImpl.VOLUME_TABLE, String.class,
-            OmVolumeArgs.class);
+    final Table<String, OmVolumeArgs> volTable = OMDBDefinition.VOLUME_TABLE_DEF.getTable(omDb);
 
     String admin = getUserId();
     String owner = getUserId();
@@ -159,18 +142,16 @@ public class GeneratorOm extends BaseGenerator implements
         .setUpdateID(1L)
         .setQuotaInBytes(100L)
         .addOzoneAcls(
-            new OzoneAcl(IAccessAuthorizer.ACLIdentityType.WORLD, "",
+            OzoneAcl.of(IAccessAuthorizer.ACLIdentityType.WORLD, "",
                 ACCESS, IAccessAuthorizer.ACLType.ALL))
         .addOzoneAcls(
-            new OzoneAcl(IAccessAuthorizer.ACLIdentityType.USER, getUserId(),
+            OzoneAcl.of(IAccessAuthorizer.ACLIdentityType.USER, getUserId(),
                 ACCESS, IAccessAuthorizer.ACLType.ALL)
         ).build();
 
     volTable.put("/" + volumeName, omVolumeArgs);
 
-    final Table<String, PersistedUserVolumeInfo> userTable =
-        omDb.getTable(OmMetadataManagerImpl.USER_TABLE, String.class,
-            PersistedUserVolumeInfo.class);
+    final Table<String, PersistedUserVolumeInfo> userTable = OMDBDefinition.USER_TABLE_DEF.getTable(omDb);
 
     PersistedUserVolumeInfo currentUserVolumeInfo =
         userTable.get(getUserId());
@@ -191,9 +172,7 @@ public class GeneratorOm extends BaseGenerator implements
 
     userTable.put(getUserId(), currentUserVolumeInfo);
 
-    Table<String, OmBucketInfo> bucketTable =
-        omDb.getTable(OmMetadataManagerImpl.BUCKET_TABLE, String.class,
-            OmBucketInfo.class);
+    final Table<String, OmBucketInfo> bucketTable = OMDBDefinition.BUCKET_TABLE_DEF.getTable(omDb);
 
     OmBucketInfo omBucketInfo = new OmBucketInfo.Builder()
         .setBucketName(bucketName)
