@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -33,11 +34,20 @@ import static org.mockito.Mockito.when;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.hdds.conf.StorageSize;
+import org.apache.hadoop.hdds.protocol.DatanodeDetails;
+import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
+import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
+import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfo;
+import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfoGroup;
+import org.apache.hadoop.ozone.om.helpers.OzoneFileStatus;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -134,6 +144,61 @@ public class TestBasicOzoneFileSystems {
     } else {
       fail("Test case not implemented for FileSystem: " +
           subject.getClass().getSimpleName());
+    }
+  }
+
+  @ParameterizedTest(autoCloseArguments = false)
+  @MethodSource("data")
+  public void testBlockLocationTopologyPaths(FileSystem subject) throws IOException {
+    if (subject instanceof BasicOzoneFileSystem) {
+      BasicOzoneClientAdapterImpl adapter = mock(BasicOzoneClientAdapterImpl.class);
+      BasicOzoneFileSystem fs = (BasicOzoneFileSystem) subject;
+      fs.setAdapter(adapter);
+
+      // Create a mock key info with a block location
+      OmKeyInfo keyInfo = mock(OmKeyInfo.class);
+      OmKeyLocationInfoGroup locationGroup = mock(OmKeyLocationInfoGroup.class);
+      OmKeyLocationInfo locationInfo = mock(OmKeyLocationInfo.class);
+      Pipeline pipeline = mock(Pipeline.class);
+      DatanodeDetails dn1 = mock(DatanodeDetails.class);
+      DatanodeDetails dn2 = mock(DatanodeDetails.class);
+      List<DatanodeDetails> nodes = Arrays.asList(dn1, dn2);
+
+      // Setup mock behavior
+      when(keyInfo.getLatestVersionLocations()).thenReturn(locationGroup);
+      when(locationGroup.getBlocksLatestVersionOnly()).thenReturn(Arrays.asList(locationInfo));
+      when(locationInfo.getPipeline()).thenReturn(pipeline);
+      when(pipeline.getNodes()).thenReturn(nodes);
+      when(locationInfo.getLength()).thenReturn(1024L);
+      
+      // Setup datanode details
+      when(dn1.getHostName()).thenReturn("host1");
+      when(dn1.getStandalonePort()).thenReturn(new DatanodeDetails.Port(1234, DatanodeDetails.Port.Name.STANDALONE));
+      when(dn1.getNetworkLocation()).thenReturn("rack1");
+      
+      when(dn2.getHostName()).thenReturn("host2");
+      when(dn2.getStandalonePort()).thenReturn(new DatanodeDetails.Port(5678, DatanodeDetails.Port.Name.STANDALONE));
+      when(dn2.getNetworkLocation()).thenReturn("rack2");
+
+      // Create mock file status
+      OzoneFileStatus fileStatus = mock(OzoneFileStatus.class);
+      when(fileStatus.getKeyInfo()).thenReturn(keyInfo);
+      when(adapter.getFileStatus(any(), any(), any(), any())).thenReturn(fileStatus);
+
+      // Get file status and verify block locations
+      Path testPath = new Path("/test");
+      FileStatus status = fs.getFileStatus(testPath);
+      BlockLocation[] locations = status.getBlockLocations();
+      
+      assertEquals(1, locations.length);
+      BlockLocation location = locations[0];
+      
+      // Verify hosts and names
+      assertArrayEquals(new String[]{"host1", "host2"}, location.getHosts());
+      assertArrayEquals(new String[]{"host1:1234", "host2:5678"}, location.getNames());
+      
+      // Verify topology paths
+      assertArrayEquals(new String[]{"/rack1/host1", "/rack2/host2"}, location.getTopologyPaths());
     }
   }
 

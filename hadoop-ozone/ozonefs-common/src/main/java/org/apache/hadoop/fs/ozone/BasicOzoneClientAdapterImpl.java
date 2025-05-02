@@ -614,6 +614,7 @@ public class BasicOzoneClientAdapterImpl implements OzoneClientAdapter {
         omKeyLocationInfoGroup.getBlocksLatestVersionOnly()) {
       List<String> hostList = new ArrayList<>();
       List<String> nameList = new ArrayList<>();
+      List<String> topologyPaths = new ArrayList<>();
       omKeyLocationInfo.getPipeline().getNodes()
           .forEach(dn -> {
             hostList.add(dn.getHostName());
@@ -622,12 +623,16 @@ public class BasicOzoneClientAdapterImpl implements OzoneClientAdapter {
               port = configuredDnPort;
             }
             nameList.add(dn.getHostName() + ":" + port);
+            // Get topology path in format /rack/node
+            String topologyPath = "/" + dn.getNetworkLocation() + "/" + dn.getHostName();
+            topologyPaths.add(topologyPath);
           });
 
       String[] hosts = hostList.toArray(new String[0]);
       String[] names = nameList.toArray(new String[0]);
+      String[] topologies = topologyPaths.toArray(new String[0]);
       BlockLocation blockLocation = new BlockLocation(
-          names, hosts, offsetOfBlockInFile,
+          names, hosts, topologies, offsetOfBlockInFile,
           omKeyLocationInfo.getLength());
       offsetOfBlockInFile += omKeyLocationInfo.getLength();
       blockLocations[i++] = blockLocation;
