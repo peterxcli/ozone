@@ -87,6 +87,7 @@ public class OMKeyCommitRequest extends OMKeyRequest {
   public OMRequest preExecute(OzoneManager ozoneManager) throws IOException {
     OMRequest request = super.preExecute(ozoneManager);
     CommitKeyRequest commitKeyRequest = request.getCommitKeyRequest();
+    LOG.info("commit request: {}", commitKeyRequest.toString());
     Preconditions.checkNotNull(commitKeyRequest);
 
     KeyArgs keyArgs = commitKeyRequest.getKeyArgs();

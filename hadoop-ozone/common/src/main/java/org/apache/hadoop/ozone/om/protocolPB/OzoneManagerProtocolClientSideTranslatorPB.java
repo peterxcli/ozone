@@ -248,6 +248,8 @@ import org.apache.hadoop.ozone.upgrade.UpgradeFinalization;
 import org.apache.hadoop.ozone.upgrade.UpgradeFinalization.StatusAndMessages;
 import org.apache.hadoop.ozone.util.ProtobufUtils;
 import org.apache.hadoop.security.token.Token;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The client side implementation of OzoneManagerProtocol.
@@ -256,6 +258,9 @@ import org.apache.hadoop.security.token.Token;
 @InterfaceAudience.Private
 public final class OzoneManagerProtocolClientSideTranslatorPB
     implements OzoneManagerClientProtocol {
+
+  private static final Logger LOG =
+      LoggerFactory.getLogger(OzoneManagerProtocolClientSideTranslatorPB.class);
 
   private final String clientID;
   private OmTransport transport;
@@ -802,12 +807,14 @@ public final class OzoneManagerProtocolClientSideTranslatorPB
   @Override
   public void hsyncKey(OmKeyArgs args, long clientId)
           throws IOException {
+    LOG.info("Hsyncing key: {}", args.getKeyName());
     updateKey(args, clientId, true, false);
   }
 
   @Override
   public void commitKey(OmKeyArgs args, long clientId)
           throws IOException {
+    LOG.trace("Commiting key: {}", args.getKeyName());
     updateKey(args, clientId, false, false);
   }
 
@@ -832,6 +839,7 @@ public final class OzoneManagerProtocolClientSideTranslatorPB
 
   private void updateKey(OmKeyArgs args, long clientId, boolean hsync, boolean recovery)
       throws IOException {
+    LOG.info("Updating key: args: {}, hsync: {}, recovery: {}", args.toString(), hsync, recovery);
     CommitKeyRequest.Builder req = CommitKeyRequest.newBuilder();
     List<OmKeyLocationInfo> locationInfoList = args.getLocationInfoList();
     Preconditions.checkNotNull(locationInfoList);
@@ -852,6 +860,8 @@ public final class OzoneManagerProtocolClientSideTranslatorPB
     req.setClientID(clientId);
     req.setHsync(hsync);
     req.setRecovery(recovery);
+
+    LOG.info("Commiting key: args: {}, hsync: {}, recovery: {}", args.toString(), hsync, recovery);
 
     OMRequest omRequest = createOMRequest(Type.CommitKey)
         .setCommitKeyRequest(req)

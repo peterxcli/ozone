@@ -174,13 +174,13 @@ public class OMKeyCommitRequestWithFSO extends OMKeyCommitRequest {
       dbOpenFileKey = fsoFile.getOpenFileName(writerClientId);
       omKeyInfo = OMFileRequest.getOmKeyInfoFromFileTable(true,
               omMetadataManager, dbOpenFileKey, keyName);
-      if (omKeyInfo == null) {
-        String action = isRecovery ? "recovery" : isHSync ? "hsync" : "commit";
+      String action = isRecovery ? "recovery" : isHSync ? "hsync" : "commit";
+      if (omKeyInfo == null) {  
         throw new OMException("Failed to " + action + " key, as " +
             dbOpenFileKey + " entry is not found in the OpenKey table", KEY_NOT_FOUND);
       } else if (omKeyInfo.getMetadata().containsKey(OzoneConsts.DELETED_HSYNC_KEY) ||
           omKeyInfo.getMetadata().containsKey(OzoneConsts.OVERWRITTEN_HSYNC_KEY)) {
-        throw new OMException("Open Key " + keyName + " is already deleted/overwritten",
+        throw new OMException("Failed to " + action + " key, as OpenKey " + keyName + " is already deleted/overwritten",
             KEY_NOT_FOUND);
       }
 

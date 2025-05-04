@@ -51,6 +51,7 @@ import org.apache.hadoop.hdds.scm.pipeline.PipelineID;
 import org.apache.hadoop.io.retry.RetryPolicies;
 import org.apache.hadoop.io.retry.RetryPolicy;
 import org.apache.hadoop.ozone.OzoneManagerVersion;
+import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfoGroup;
 import org.apache.hadoop.ozone.om.helpers.OmMultipartCommitUploadPartInfo;
@@ -520,6 +521,7 @@ public class KeyOutputStream extends OutputStream
 
   @Override
   public void hsync() throws IOException {
+    LOG.info("HSYNC called");
     try {
       getRequestSemaphore().acquire();
 
@@ -539,6 +541,8 @@ public class KeyOutputStream extends OutputStream
       checkNotClosed();
       final long hsyncPos = writeOffset;
       handleFlushOrClose(StreamAction.HSYNC);
+
+      LOG.info("HSYNC called 2");
 
       doInWriteLock(() -> {
         Preconditions.checkState(offset >= hsyncPos,
@@ -581,6 +585,12 @@ public class KeyOutputStream extends OutputStream
               handleStreamAction(entry, op);
               entry.registerCallFinished();
             } catch (IOException ioe) {
+              LOG.info("handleStreamAction exception: {}", ioe);
+              // If it's an OM exception, propagate it directly
+              if (ioe instanceof OMException) {
+                entry.registerCallFinished();
+                throw ioe;
+              }
               handleException(entry, ioe, false);
               continue;
             } catch (Exception e) {

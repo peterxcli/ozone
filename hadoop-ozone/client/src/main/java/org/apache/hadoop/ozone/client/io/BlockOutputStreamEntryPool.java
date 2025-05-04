@@ -346,13 +346,16 @@ public class BlockOutputStreamEntryPool implements KeyMetadataAware {
       if (keyArgs.getIsMultipartKey()) {
         throw new IOException("Hsync is unsupported for multipart keys.");
       } else {
+        LOG.info("Hsyncing key: {}", keyArgs.getKeyName());
         if (keyArgs.getLocationInfoList().isEmpty()) {
+          LOG.info("Hsyncing key: {} with empty location info list", keyArgs.getKeyName());
           MetricUtil.captureLatencyNs(clientMetrics::addOMHsyncLatency,
               () -> omClient.hsyncKey(keyArgs, openID));
         } else {
           ContainerBlockID lastBLockId = keyArgs.getLocationInfoList().get(keyArgs.getLocationInfoList().size() - 1)
               .getBlockID().getContainerBlockID();
           if (!lastUpdatedBlockId.equals(lastBLockId)) {
+            LOG.info("Hsyncing key: {} with last block id: {}", keyArgs.getKeyName(), lastBLockId);
             MetricUtil.captureLatencyNs(clientMetrics::addOMHsyncLatency,
                 () -> omClient.hsyncKey(keyArgs, openID));
             lastUpdatedBlockId = lastBLockId;

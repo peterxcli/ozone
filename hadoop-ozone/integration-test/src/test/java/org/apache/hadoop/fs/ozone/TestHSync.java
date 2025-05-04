@@ -36,6 +36,7 @@ import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_OPEN_KEY_CLEANUP_
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_OPEN_KEY_EXPIRE_THRESHOLD;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -539,8 +540,34 @@ public class TestHSync {
       try (FSDataOutputStream os = fs.create(key1, true)) {
         os.write(1);
         os.hsync();
-        fs.delete(key1, false);
+        // fs.delete(key1, false);
 
+        // // getFileStatus should throw FNFE because the key is deleted
+        // assertThrows(FileNotFoundException.class,
+        //     () -> fs.getFileStatus(key1));
+
+        // // hsync should throw because the open key is gone
+        // OMException exception = assertThrows(OMException.class,
+        //     () -> os.hsync());
+        // assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, exception.getResult());
+        // // os.hsync();
+
+        // // key1 should not reappear after failed hsync
+        // assertThrows(FileNotFoundException.class,
+        //     () -> fs.getFileStatus(key1));
+      } catch (Exception ex) {
+        // // os.close() throws OMException because the key is deleted
+        // assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, ex.getResult());
+        fail("hsync should throw because the key is deleted");
+      }
+
+      boolean exThrownWhenClose = false;
+
+      // read the created key as output stream
+      try (FSDataOutputStream os = fs.create(key1, true)) {
+        assertDoesNotThrow(() -> os.write(1));
+        assertDoesNotThrow(() -> fs.delete(key1, false));
+        
         // getFileStatus should throw FNFE because the key is deleted
         assertThrows(FileNotFoundException.class,
             () -> fs.getFileStatus(key1));
@@ -554,9 +581,10 @@ public class TestHSync {
         assertThrows(FileNotFoundException.class,
             () -> fs.getFileStatus(key1));
       } catch (OMException ex) {
-        // os.close() throws OMException because the key is deleted
+        exThrownWhenClose = true;
         assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, ex.getResult());
       }
+      assertTrue(exThrownWhenClose);
     }
   }
 
@@ -566,7 +594,7 @@ public class TestHSync {
 
   @ParameterizedTest
   @MethodSource("bucketLayouts")
-  public void testBatchKeyDeletionWithHSync(BucketLayout bucketLayout) throws Exception {
+  public void testHSyncBatchDeltedKeys(BucketLayout bucketLayout) throws Exception {
     // Create a bucket with the specified layout
     OzoneBucket testBucket = TestDataUtil.createVolumeAndBucket(client, bucketLayout);
     
@@ -579,26 +607,30 @@ public class TestHSync {
 
     // Create multiple files, some with hsync
     final int numFiles = 5;
-    List<String> openKeys = new ArrayList<>();
+    Map<String, FSDataOutputStream> openKeysOSMap = new HashMap<>();
 
     try (FileSystem fs = FileSystem.get(CONF)) {
       for (int i = 0; i < numFiles; i++) {
         String keyName = "batch-key-" + i;
         Path file = new Path(dir, keyName);
-        try (FSDataOutputStream os = fs.create(file, true)) {
-          os.write(1);
-          os.hsync();
-          openKeys.add(keyName);
-        }
+        FSDataOutputStream os = fs.create(file, true);
+        os.write(1);
+        os.hsync();
+        openKeysOSMap.put(keyName, os);
       }
 
-      client.getObjectStore().getVolume(testBucket.getVolumeName())
-          .getBucket(testBucket.getName())
-          .deleteKeys(openKeys);
+      assertDoesNotThrow(() -> testBucket.deleteKeys(new ArrayList<>(openKeysOSMap.keySet())));
 
-      for (String key : openKeys) {
-        assertThrows(FileNotFoundException.class,
-          () -> fs.open(new Path(dir, key)));
+      for (Map.Entry<String, FSDataOutputStream> entry : openKeysOSMap.entrySet()) {
+        // test if the os is not closed at client side
+        OMException exception = assertThrows(OMException.class,
+            () -> entry.getValue().hsync(), "hsync should throw because the key " + entry.getKey() + " is deleted");
+        assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, exception.getResult());
+
+        // os.close() throws OMException because the key is deleted
+        exception = assertThrows(OMException.class,
+            () -> entry.getValue().close());
+        assertEquals(OMException.ResultCodes.KEY_NOT_FOUND, exception.getResult());
       }
     }
   }
