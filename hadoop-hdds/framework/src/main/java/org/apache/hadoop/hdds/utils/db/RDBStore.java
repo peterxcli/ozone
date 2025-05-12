@@ -34,8 +34,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.utils.IOUtils;
 import org.apache.hadoop.hdds.utils.RocksDBStoreMetrics;
@@ -43,12 +47,14 @@ import org.apache.hadoop.hdds.utils.db.RocksDatabase.ColumnFamily;
 import org.apache.hadoop.hdds.utils.db.cache.TableCache;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedCompactRangeOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedDBOptions;
+import org.apache.hadoop.hdds.utils.db.managed.ManagedRange;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedStatistics;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedTransactionLogIterator;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedWriteOptions;
 import org.apache.ozone.rocksdiff.RocksDBCheckpointDiffer;
 import org.apache.ozone.rocksdiff.RocksDBCheckpointDiffer.RocksDBCheckpointDifferHolder;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.TableProperties;
 import org.rocksdb.TransactionLogIterator.BatchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -226,19 +232,63 @@ public class RDBStore implements DBStore {
   public void compactTable(String tableName) throws IOException {
     try (ManagedCompactRangeOptions options = new ManagedCompactRangeOptions()) {
       compactTable(tableName, options);
+  public void compactTable(String tableName, String startKey, String endKey) throws IOException {
+    try (ManagedCompactRangeOptions options = new ManagedCompactRangeOptions()) {
+      compactTable(tableName, startKey, endKey, options);
     }
   }
 
   @Override
+
   public void compactTable(String tableName, ManagedCompactRangeOptions options) throws IOException {
     RocksDatabase.ColumnFamily columnFamily = db.getColumnFamily(tableName);
-    if (columnFamily == null) {
       throw new IOException("Table not found: " + tableName);
     }
     db.compactRange(columnFamily, null, null, options);
   }
 
+  public void compactTable(String tableName, String startKey, String endKey,
+      ManagedCompactRangeOptions options) throws IOException {
+    if (columnFamily == null) {
+      throw new IOException("No such table in this DB. TableName : " + tableName);
+    }
+    db.compactRange(columnFamily, getPersistedKey(startKey),
+        getPersistedKey(endKey), options);
+  }
+
   @Override
+  public Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, String startKey,
+      String endKey) throws IOException {
+    return getPropertiesOfTableInRange(tableName, 
+        Collections.singletonList(new KeyRange(startKey, endKey)));
+  }
+
+  @Override
+  public Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, 
+      List<KeyRange> ranges) throws IOException {
+    ColumnFamily columnFamily = db.getColumnFamily(tableName);
+    if (columnFamily == null) {
+      throw new IOException("No such table in this DB. TableName : " + tableName);
+    }
+    
+    List<ManagedRange> rocksRanges = ranges.stream()
+        .map(t -> {
+          try {
+            return t.toRocksRange();
+          } catch (IOException e) {
+            LOG.error("Failed to convert {} to RocksDB Range", t, e);
+            return null;
+          }
+        })
+        .filter(Objects::nonNull)
+        .collect(Collectors.toList());
+    return db.getPropertiesOfColumnFamilyInRange(columnFamily, rocksRanges);
+  }
+
+  private byte[] getPersistedKey(String key) throws IOException {
+    return StringCodec.get().toPersistedFormat(key);
+  }
+
   public void close() throws IOException {
     if (metrics != null) {
       metrics.unregister();
