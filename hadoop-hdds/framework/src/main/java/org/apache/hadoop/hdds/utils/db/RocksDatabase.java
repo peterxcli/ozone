@@ -48,6 +48,7 @@ import org.apache.hadoop.hdds.utils.db.managed.ManagedDBOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedFlushOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedIngestExternalFileOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedOptions;
+import org.apache.hadoop.hdds.utils.db.managed.ManagedRange;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedReadOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedRocksDB;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedRocksIterator;
@@ -64,6 +65,7 @@ import org.rocksdb.Holder;
 import org.rocksdb.KeyMayExist;
 import org.rocksdb.LiveFileMetaData;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.TableProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -879,6 +881,11 @@ public final class RocksDatabase implements Closeable {
         }
       }
     }
+  }
+
+  public Map<String, TableProperties> getPropertiesOfColumnFamilyInRange(ColumnFamily columnFamily,
+      List<ManagedRange> ranges) throws RocksDatabaseException {
+    return db.getPropertiesOfColumnFamilyInRange(columnFamily.getHandle(), ranges);
   }
 
   @Override
