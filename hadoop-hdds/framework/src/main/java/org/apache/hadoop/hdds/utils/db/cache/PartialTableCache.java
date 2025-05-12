@@ -19,6 +19,7 @@ package org.apache.hadoop.hdds.utils.db.cache;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -115,6 +116,11 @@ public class PartialTableCache<KEY, VALUE> implements TableCache<KEY, VALUE> {
   public Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator() {
     statsRecorder.recordIteration();
     return cache.entrySet().iterator();
+  }
+
+  @Override
+  public Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator(KEY startKey) {
+    return Collections.emptyIterator();
   }
 
   @VisibleForTesting

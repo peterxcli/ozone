@@ -533,6 +533,9 @@ public interface OMMetadataManager extends DBStoreHAManager {
   Iterator<Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>>>
       getBucketIterator();
 
+  Iterator<Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>>>
+      getBucketIterator(String startKey);
+
   TableIterator<String, ? extends Table.KeyValue<String, OmKeyInfo>>
       getKeyIterator() throws IOException;
 

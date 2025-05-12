@@ -73,6 +73,11 @@ public final class TableNoCache<KEY, VALUE> implements TableCache<KEY, VALUE> {
     return Collections.emptyIterator();
   }
 
+  @Override
+  public Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator(KEY startKey) {
+    return Collections.emptyIterator();
+  }
+
   @VisibleForTesting
   @Override
   public void evictCache(List<Long> epochs) {

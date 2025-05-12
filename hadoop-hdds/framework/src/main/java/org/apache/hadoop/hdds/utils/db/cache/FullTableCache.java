@@ -53,7 +53,7 @@ public class FullTableCache<KEY, VALUE> implements TableCache<KEY, VALUE> {
   private static final Logger LOG =
       LoggerFactory.getLogger(FullTableCache.class);
 
-  private final Map<CacheKey<KEY>, CacheValue<VALUE>> cache;
+  private final NavigableMap<CacheKey<KEY>, CacheValue<VALUE>> cache;
   private final NavigableMap<Long, Set<CacheKey<KEY>>> epochEntries;
   private final ScheduledExecutorService executorService;
   private final Queue<Long> epochCleanupQueue = new ConcurrentLinkedQueue<>();
@@ -148,6 +148,12 @@ public class FullTableCache<KEY, VALUE> implements TableCache<KEY, VALUE> {
   public Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator() {
     statsRecorder.recordIteration();
     return cache.entrySet().iterator();
+  }
+
+  @Override
+  public Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator(KEY startKey) {
+    statsRecorder.recordIteration();
+    return cache.tailMap(new CacheKey<>(startKey)).entrySet().iterator();
   }
 
   @VisibleForTesting
