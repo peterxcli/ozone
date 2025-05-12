@@ -642,6 +642,26 @@ public final class OMConfigKeys {
       "keyTable,fileTable,directoryTable,deletedTable,deletedDirectoryTable,multipartInfoTable";
 
   /**
+   * Configuration keys for RocksDB compaction.
+   */
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED = "ozone.om.range.compaction.service.enabled";
+  public static final boolean OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED_DEFAULT = true;
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL = "ozone.om.range.compaction.service.interval";
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL_DEFAULT = "1s";
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT = "ozone.om.range.compaction.service.timeout";
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT_DEFAULT = "10m";
+
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_ENTRIES_SUM 
+        = "ozone.om.range.compaction.service.max.entries.sum";
+  public static final int OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_ENTRIES_SUM_DEFAULT = 1000000;
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_TOMBSTONE_RATIO 
+        = "ozone.om.range.compaction.service.tombstone.ratio";
+  public static final double OZONE_OM_RANGE_COMPACTION_SERVICE_TOMBSTONE_RATIO_DEFAULT = 0.3;
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_MIN_TOMBSTONES 
+        = "ozone.om.range.compaction.service.min.tombstones";
+  public static final int OZONE_OM_RANGE_COMPACTION_SERVICE_MIN_TOMBSTONES_DEFAULT = 10000;
+
+  /**
    * Never constructed.
    */
   private OMConfigKeys() {
