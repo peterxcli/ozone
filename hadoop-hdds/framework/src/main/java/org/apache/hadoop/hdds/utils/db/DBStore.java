@@ -21,12 +21,14 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.apache.hadoop.hdds.annotation.InterfaceStability;
 import org.apache.hadoop.hdds.utils.db.cache.TableCache;
 import org.apache.hadoop.hdds.utils.db.cache.TableCache.CacheType;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedCompactRangeOptions;
 import org.apache.ozone.rocksdiff.RocksDBCheckpointDiffer;
+import org.rocksdb.TableProperties;
 
 /**
  * The DBStore interface provides the ability to create Tables, which store
@@ -115,6 +117,34 @@ public interface DBStore extends Closeable, BatchOperationHandler {
    * @throws IOException on Failure
    */
   void compactTable(String tableName, ManagedCompactRangeOptions options) throws IOException;
+
+  /**
+   * Compact a range of keys in the database.
+   *
+   * @param tableName - The table name to compact.
+   * @param startKey - The starting key of the range to compact.
+   * @param endKey - The ending key of the range to compact.
+   * @throws IOException on Failure
+   */
+  void compactTable(String tableName, String startKey, String endKey) throws IOException;
+
+  void compactTable(String tableName, String startKey, String endKey,
+          ManagedCompactRangeOptions options) throws IOException;
+
+  /**
+   * Get the properties of a column family in a range.
+   * @param columnFamily - The column family to get the properties of.
+   * @param startKey - The starting key of the range.
+   * @param endKey - The ending key of the range.
+   * @return - The properties of the column family in the range.
+   * @throws IOException on Failure
+   */
+  Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, String startKey,
+      String endKey) throws IOException;
+  
+  Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, List<KeyRange> ranges)
+      throws IOException;
+  
 
   /**
    * Moves a key from the Source Table to the destination Table.
