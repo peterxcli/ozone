@@ -17,6 +17,8 @@
 
 package org.apache.hadoop.ozone.om.codec;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import org.apache.hadoop.hdds.utils.TransactionInfo;
 import org.apache.hadoop.hdds.utils.db.DBColumnFamilyDefinition;
@@ -26,6 +28,7 @@ import org.apache.hadoop.hdds.utils.db.Proto2Codec;
 import org.apache.hadoop.hdds.utils.db.StringCodec;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.om.OMConfigKeys;
+import org.apache.hadoop.ozone.om.helpers.BucketLayout;
 import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
 import org.apache.hadoop.ozone.om.helpers.OmDBAccessIdInfo;
 import org.apache.hadoop.ozone.om.helpers.OmDBTenantState;
@@ -339,6 +342,27 @@ public final class OMDBDefinition extends DBDefinition.WithMap {
           USER_TABLE_DEF,
           VOLUME_TABLE_DEF);
 
+  /**
+   * Mapping from table names to their corresponding bucket layouts.
+   * This is used to determine which type of compactor to use for each table.
+   */
+  private static final Map<String, BucketLayout> TABLE_BUCKET_LAYOUT_MAP;
+
+  static {
+    Map<String, BucketLayout> map = new HashMap<>();
+    // FSO tables
+    map.put(FILE_TABLE_DEF.getName(), BucketLayout.FILE_SYSTEM_OPTIMIZED);
+    map.put(OPEN_FILE_TABLE_DEF.getName(), BucketLayout.FILE_SYSTEM_OPTIMIZED);
+    map.put(DIRECTORY_TABLE_DEF.getName(), BucketLayout.FILE_SYSTEM_OPTIMIZED);
+    map.put(DELETED_DIR_TABLE_DEF.getName(), BucketLayout.FILE_SYSTEM_OPTIMIZED);
+    // OBS/Legacy tables
+    map.put(KEY_TABLE_DEF.getName(), BucketLayout.OBJECT_STORE);
+    map.put(DELETED_TABLE_DEF.getName(), BucketLayout.OBJECT_STORE);
+    map.put(OPEN_KEY_TABLE_DEF.getName(), BucketLayout.OBJECT_STORE);
+    map.put(MULTIPART_INFO_TABLE_DEF.getName(), BucketLayout.OBJECT_STORE);
+    TABLE_BUCKET_LAYOUT_MAP = Collections.unmodifiableMap(map);
+  }
+
   private static final OMDBDefinition INSTANCE = new OMDBDefinition();
 
   public static OMDBDefinition get() {
@@ -357,6 +381,15 @@ public final class OMDBDefinition extends DBDefinition.WithMap {
   @Override
   public String getLocationConfigKey() {
     return OMConfigKeys.OZONE_OM_DB_DIRS;
+  }
+
+  /**
+   * Get the bucket layout for a given table name.
+   * @param tableName The name of the table
+   * @return The bucket layout for the table, or null if not found
+   */
+  public static BucketLayout getBucketLayoutForTable(String tableName) {
+    return TABLE_BUCKET_LAYOUT_MAP.get(tableName);
   }
 }
 
