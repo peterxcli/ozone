@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.hadoop.hdds.StringUtils;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.utils.IOUtils;
 import org.apache.hadoop.hdds.utils.RocksDBStoreMetrics;
@@ -252,8 +253,8 @@ public class RDBStore implements DBStore {
     if (columnFamily == null) {
       throw new IOException("No such table in this DB. TableName : " + tableName);
     }
-    db.compactRange(columnFamily, getPersistedKey(startKey),
-        getPersistedKey(endKey), options);
+    db.compactRange(columnFamily, StringUtils.string2Bytes(startKey),
+        StringUtils.string2Bytes(endKey), options);
   }
 
   @Override
@@ -285,10 +286,7 @@ public class RDBStore implements DBStore {
     return db.getPropertiesOfColumnFamilyInRange(columnFamily, rocksRanges);
   }
 
-  private byte[] getPersistedKey(String key) throws IOException {
-    return StringCodec.get().toPersistedFormat(key);
-  }
-
+  @Override
   public void close() throws IOException {
     if (metrics != null) {
       metrics.unregister();
