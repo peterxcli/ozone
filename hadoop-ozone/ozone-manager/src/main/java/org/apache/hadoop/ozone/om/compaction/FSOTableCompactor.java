@@ -24,18 +24,18 @@ import org.apache.hadoop.hdds.utils.db.KeyRange;
 import org.apache.hadoop.hdds.utils.db.cache.CacheKey;
 import org.apache.hadoop.hdds.utils.db.cache.CacheValue;
 import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+// import org.slf4j.Logger;
+// import org.slf4j.LoggerFactory;
 
 /**
  * Compactor for FSO layout that compacts based on bucket and parent ID ranges.
  */
 public class FSOTableCompactor extends AbstractCompactor {
-  private static final Logger LOG = LoggerFactory.getLogger(FSOTableCompactor.class);
+  // private static final Logger LOG = LoggerFactory.getLogger(FSOTableCompactor.class);
 
-  private String nextBucket;
-  private String nextParentId;
-  private String nextKey;
+  private String nextBucket = null;
+  private String nextParentId = null;
+  // private String nextKey;
 
   public FSOTableCompactor(CompactorBuilder builder) {
     super(builder);
@@ -85,7 +85,7 @@ public class FSOTableCompactor extends AbstractCompactor {
         ranges.add(range);
       }
       nextParentId = null;
-      nextKey = null;
+      // nextKey = null;
     } else {
       String splitKey = findSplitKey(range);
       if (splitKey != null) {
@@ -94,7 +94,7 @@ public class FSOTableCompactor extends AbstractCompactor {
         if (needsCompaction(splitStats, getMinTombstones(), getTombstoneRatio())) {
           ranges.add(splitRange);
         }
-        nextKey = splitKey;
+        // nextKey = splitKey;
       }
     }
   }

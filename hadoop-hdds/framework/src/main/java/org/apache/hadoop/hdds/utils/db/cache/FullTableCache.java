@@ -153,6 +153,9 @@ public class FullTableCache<KEY, VALUE> implements TableCache<KEY, VALUE> {
   @Override
   public Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator(KEY startKey) {
     statsRecorder.recordIteration();
+    if (startKey == null) {
+      return cache.entrySet().iterator();
+    }
     return cache.tailMap(new CacheKey<>(startKey)).entrySet().iterator();
   }
 

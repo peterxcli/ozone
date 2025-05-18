@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
 public class OBSTableCompactor extends AbstractCompactor {
   private static final Logger LOG = LoggerFactory.getLogger(OBSTableCompactor.class);
 
-  private String nextBucket;
+  private String currentBucketUpperBound;
   private String nextKey;
 
   public OBSTableCompactor(CompactorBuilder builder) {
@@ -42,70 +42,89 @@ public class OBSTableCompactor extends AbstractCompactor {
 
   @Override
   public void run() {
-    
+    List<KeyRange> ranges = getRangesNeedingCompaction();
+    for (KeyRange range : ranges) {
+      addRangeCompactionTask(range);
+    }
   }
 
   @Override
   protected void collectRangesNeedingCompaction(List<KeyRange> ranges) {
-    Iterator<Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>>> bucketIterator = getBucketIterator();
-    while (bucketIterator.hasNext()) {
-      Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>> entry = bucketIterator.next();
-      String bucketKey = entry.getKey().getCacheKey();
-      OmBucketInfo bucketInfo = entry.getValue().getCacheValue();
+    long accumulatedEntries = 0;
+    if (nextKey != null) {
+      LOG.info("Last range has been splited, start from the next key {}", nextKey);
+      // TODO: handle pagination
+    }
 
-      if (nextBucket != null && !nextBucket.equals(bucketKey)) {
-        continue;
+    while (accumulatedEntries < getMaxEntriesSum()) {
+      KeyRange bucketBound = getNextBucketBound();
+      if (bucketBound == null && accumulatedEntries == 0) {
+        // the last run may reach the end of the iterator, reset the iterator
+        currentBucketUpperBound = null;
+        bucketBound = getNextBucketBound();
       }
 
-      KeyRange bucketRange = new KeyRange(bucketKey, getNextBucketKey(bucketKey));
-      KeyRangeStats stats = getRangeStats(bucketRange);
+      if (bucketBound == null) {
+        currentBucketUpperBound = null;
+        break;
+      }
 
-      if (stats.getNumEntries() <= getMaxEntriesSum()) {
+      currentBucketUpperBound = bucketBound.getEndKey();
+      KeyRangeStats stats = getRangeStats(bucketBound);
+
+      if (accumulatedEntries + stats.getNumEntries() <= getMaxEntriesSum()) {
         // If the entire bucket fits within maxEntriesSum, check if it needs compaction
         if (needsCompaction(stats, getMinTombstones(), getTombstoneRatio())) {
-          ranges.add(bucketRange);
+          // TODO: merge consecutive ranges into one
+          ranges.add(bucketBound);
+          accumulatedEntries += stats.getNumEntries();
         }
-        nextBucket = null;
-        nextKey = null;
       } else {
-        // Need to split the bucket range
-        String splitKey = findSplitKey(bucketRange);
-        if (splitKey != null) {
-          KeyRange splitRange = new KeyRange(bucketKey, splitKey);
-          KeyRangeStats splitStats = getRangeStats(splitRange);
-          if (needsCompaction(splitStats, getMinTombstones(), getTombstoneRatio())) {
-            ranges.add(splitRange);
-          }
-          nextBucket = bucketKey;
-          nextKey = splitKey;
-          break;
-        }
+        LOG.info("Bucket {} is too large, need to split", bucketBound);
+        // TODO:Need to split the bucket range
+        // String splitKey = findSplitKey(bucketBound);
+        // if (splitKey != null) {
+          // KeyRange splitRange = new KeyRange(bucketKey, splitKey);
+          // KeyRangeStats splitStats = getRangeStats(splitRange);
+          // if (needsCompaction(splitStats, getMinTombstones(), getTombstoneRatio())) {
+          //   ranges.add(splitRange);
+          // }
+          // nextBucket = bucketKey;
+          // nextKey = splitKey;
+          // break;
+        // }
       }
     }
   }
 
-  private Iterator<Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>>> getBucketIterator() {
-    if (nextBucket != null) {
-      return getMetadataManager().getBucketIterator(nextBucket);
+  /**
+   * Get the next bucket bound.
+   * 
+   * @return the next bucket bound, or null if reach the end of the iterator
+   */
+  private KeyRange getNextBucketBound() {
+    Iterator<Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>>> iterator = getMetadataManager()
+        .getBucketIterator(currentBucketUpperBound);
+    if (!iterator.hasNext()) {
+      return null;
     }
-    return getMetadataManager().getBucketIterator();
+
+    String bucketStartKey = iterator.next().getKey().getCacheKey(), bucketEndKey;
+    if (iterator.hasNext()) {
+      bucketEndKey = iterator.next().getKey().getCacheKey();
+    } else {
+      bucketEndKey = getKeyPrefixUpperBound(bucketStartKey);
+    }
+    return new KeyRange(bucketStartKey, bucketEndKey);
   }
 
-  private String getNextBucketKey(String currentBucketKey) {
-    // For OBS and legacy layout, the next bucket key is the current bucket key + 1
-    // This is a simplified version - in reality, you'd need to handle the key
-    // format
-    // based on your specific key structure
-    return currentBucketKey + "\0";
-  }
+  // private String findSplitKey(KeyRange range) {
+  //   // Binary search to find a split key that keeps the range under maxEntriesSum
+  //   String startKey = range.getStartKey();
+  //   String endKey = range.getEndKey();
 
-  private String findSplitKey(KeyRange range) {
-    // Binary search to find a split key that keeps the range under maxEntriesSum
-    String startKey = range.getStartKey();
-    String endKey = range.getEndKey();
-
-    // This is a simplified version - in reality, you'd need to implement
-    // a proper binary search based on your key format
-    return startKey + "\0";
-  }
+  //   // This is a simplified version - in reality, you'd need to implement
+  //   // a proper binary search based on your key format
+  //   return startKey + "\0";
+  // }
 }
