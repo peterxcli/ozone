@@ -120,6 +120,12 @@ public abstract class AbstractCompactor implements Compactor {
     compactRangeQueue.add(new CompactionTask(range));
   }
 
+  protected String getKeyPrefixUpperBound(String keyPrefix) {
+    char[] upperBoundCharArray = keyPrefix.toCharArray();
+    upperBoundCharArray[upperBoundCharArray.length - 1] += 1;
+    return String.valueOf(upperBoundCharArray);
+  }
+
   private class CompactionTask implements BackgroundTask {
     private final KeyRange range;
 
