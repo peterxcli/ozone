@@ -23,18 +23,18 @@ import org.rocksdb.TableProperties;
  * Statistics for a key range.
  */
 public class KeyRangeStats {
-  private int numEntries;
-  private int numDeletion;
+  private long numEntries;
+  private long numDeletion;
 
-  public KeyRangeStats(int numEntries, int numDeletion) {
+  public KeyRangeStats(long numEntries, long numDeletion) {
     this.numEntries = numEntries;
     this.numDeletion = numDeletion;
   }
 
   public static KeyRangeStats fromTableProperties(TableProperties properties) {
     return new KeyRangeStats(
-        (int) properties.getNumEntries(),
-        (int) properties.getNumDeletions());
+        properties.getNumEntries(),
+        properties.getNumDeletions());
   }
 
   public void add(KeyRangeStats other) {
@@ -42,19 +42,19 @@ public class KeyRangeStats {
     this.numDeletion += other.numDeletion;
   }
 
-  public int getNumEntries() {
+  public long getNumEntries() {
     return numEntries;
   }
 
-  public int getNumDeletion() {
+  public long getNumDeletion() {
     return numDeletion;
   }
 
-  public double getTombstonePercentage() {
+  public double getTombstoneRatio() {
     if (numEntries == 0) {
       return 0.0;
     }
-    return ((double) numDeletion / numEntries) * 100;
+    return ((double) numDeletion / numEntries);
   }
 
   @Override
@@ -62,7 +62,7 @@ public class KeyRangeStats {
     return "KeyRangeStats{" +
         "numEntries=" + numEntries +
         ", numDeletion=" + numDeletion +
-        ", tombstonePercentage=" + getTombstonePercentage() +
+        ", tombstoneRatio=" + getTombstoneRatio() +
         '}';
   }
 }

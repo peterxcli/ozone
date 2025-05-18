@@ -30,14 +30,14 @@ import org.slf4j.LoggerFactory;
 /**
  * Compactor for FSO layout that compacts based on bucket and parent ID ranges.
  */
-public class FSOBucketCompactor extends AbstractCompactor {
-  private static final Logger LOG = LoggerFactory.getLogger(FSOBucketCompactor.class);
+public class FSOTableCompactor extends AbstractCompactor {
+  private static final Logger LOG = LoggerFactory.getLogger(FSOTableCompactor.class);
 
   private String nextBucket;
   private String nextParentId;
   private String nextKey;
 
-  public FSOBucketCompactor(CompactorBuilder builder) {
+  public FSOTableCompactor(CompactorBuilder builder) {
     super(builder);
   }
 

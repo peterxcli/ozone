@@ -30,13 +30,13 @@ import org.slf4j.LoggerFactory;
 /**
  * Compactor for OBS and legacy layout that compacts based on bucket ranges.
  */
-public class BucketCompactor extends AbstractCompactor {
-  private static final Logger LOG = LoggerFactory.getLogger(BucketCompactor.class);
+public class OBSTableCompactor extends AbstractCompactor {
+  private static final Logger LOG = LoggerFactory.getLogger(OBSTableCompactor.class);
 
   private String nextBucket;
   private String nextKey;
 
-  public BucketCompactor(CompactorBuilder builder) {
+  public OBSTableCompactor(CompactorBuilder builder) {
     super(builder);
   }
 

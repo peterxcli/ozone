@@ -84,9 +84,9 @@ public class CompactorBuilder {
 
     switch (layout) {
     case FILE_SYSTEM_OPTIMIZED:
-      return new FSOBucketCompactor(this);
+      return new FSOTableCompactor(this);
     case OBJECT_STORE:
-      return new BucketCompactor(this);
+      return new OBSTableCompactor(this);
     default:
       throw new IllegalArgumentException("Unsupported bucket layout: " + layout);
     }
