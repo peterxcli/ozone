@@ -18,6 +18,7 @@
 package org.apache.hadoop.hdds.utils.db;
 
 import java.io.IOException;
+import org.apache.hadoop.hdds.StringUtils;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedRange;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedSlice;
 
@@ -43,8 +44,8 @@ public class KeyRange {
 
   public ManagedRange toRocksRange() throws IOException {
     return new ManagedRange(
-        new ManagedSlice(StringCodec.get().toPersistedFormat(startKey)),
-        new ManagedSlice(StringCodec.get().toPersistedFormat(endKey)));
+        new ManagedSlice(StringUtils.string2Bytes(startKey)),
+        new ManagedSlice(StringUtils.string2Bytes(endKey)));
   }
 
   @Override
