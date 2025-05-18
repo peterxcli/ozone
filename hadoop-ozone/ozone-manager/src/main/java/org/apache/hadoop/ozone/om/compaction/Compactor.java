@@ -32,11 +32,11 @@ public interface Compactor extends Runnable {
   /**
    * Check if a range needs compaction based on its statistics.
    */
-  default boolean needsCompaction(KeyRangeStats stats, int minTombstones, double tombstonePercentage) {
+  default boolean needsCompaction(KeyRangeStats stats, int minTombstones, double tombstoneRatio) {
     if (stats.getNumDeletion() < minTombstones) {
       return false;
     }
-    return stats.getTombstonePercentage() >= tombstonePercentage;
+    return stats.getTombstoneRatio() >= tombstoneRatio;
   }
 
   /**
