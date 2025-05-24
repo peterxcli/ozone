@@ -34,6 +34,11 @@ public class KeyRange {
     this.endKey = endKey;
   }
 
+  public KeyRange(byte[] startKey, byte[] endKey) {
+    this.startKey = StringUtils.bytes2String(startKey);
+    this.endKey = StringUtils.bytes2String(endKey);
+  }
+
   public String getStartKey() {
     return startKey;
   }
