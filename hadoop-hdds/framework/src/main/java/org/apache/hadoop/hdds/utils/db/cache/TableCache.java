@@ -78,6 +78,8 @@ public interface TableCache<KEY, VALUE> {
    */
   Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator();
 
+  Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> iterator(KEY startKey);
+
   /**
    * Check key exist in cache or not.
    *
