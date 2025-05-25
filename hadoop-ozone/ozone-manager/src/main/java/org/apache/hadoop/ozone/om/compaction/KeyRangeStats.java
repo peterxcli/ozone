@@ -26,6 +26,11 @@ public class KeyRangeStats {
   private long numEntries;
   private long numDeletion;
 
+  public KeyRangeStats() {
+    this.numEntries = 0;
+    this.numDeletion = 0;
+  }
+
   public KeyRangeStats(long numEntries, long numDeletion) {
     this.numEntries = numEntries;
     this.numDeletion = numDeletion;

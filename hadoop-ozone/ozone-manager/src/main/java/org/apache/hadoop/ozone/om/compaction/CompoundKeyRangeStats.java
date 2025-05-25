@@ -40,16 +40,40 @@ public class CompoundKeyRangeStats {
     }
   }
 
-  public void index() {
-    // TODO: use some interval tree or segment tree to index the key range stats as
-    // the range may overlap with each other.
-  }
-
   public KeyRangeStats getCompoundStats() {
     return compoundStats;
   }
 
   public List<Pair<KeyRange, KeyRangeStats>> getKeyRangeStatsList() {
     return keyRangeStatsList;
+  }
+
+  public int size() {
+    return keyRangeStatsList.size();
+  }
+
+  public long getNumEntries() {
+    return compoundStats.getNumEntries();
+  }
+
+  public long getNumDeletion() {
+    return compoundStats.getNumDeletion();
+  }
+
+  public double getTombstoneRatio() {
+    return compoundStats.getTombstoneRatio();
+  }
+
+  public void add(CompoundKeyRangeStats other) {
+    compoundStats.add(other.getCompoundStats());
+    keyRangeStatsList.addAll(other.getKeyRangeStatsList());
+  }
+
+  @Override
+  public String toString() {
+    return "CompoundKeyRangeStats{" +
+        "compoundStats=" + compoundStats +
+        ", keyRangeStatsList=" + keyRangeStatsList +
+        '}';
   }
 }

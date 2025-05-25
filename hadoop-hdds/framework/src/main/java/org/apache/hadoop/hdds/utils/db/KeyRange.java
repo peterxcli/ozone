@@ -47,7 +47,7 @@ public class KeyRange {
     return endKey;
   }
 
-  public ManagedRange toRocksRange() throws IOException {
+  public ManagedRange toManagedRange() throws IOException {
     return new ManagedRange(
         new ManagedSlice(StringUtils.string2Bytes(startKey)),
         new ManagedSlice(StringUtils.string2Bytes(endKey)));
