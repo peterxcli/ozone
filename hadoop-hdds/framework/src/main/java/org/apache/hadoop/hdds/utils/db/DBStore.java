@@ -133,7 +133,7 @@ public interface DBStore extends Closeable, BatchOperationHandler {
 
   /**
    * Get the properties of a column family in a range.
-   * @param columnFamily - The column family to get the properties of.
+   * @param tableName - The table name to get the properties of.
    * @param startKey - The starting key of the range.
    * @param endKey - The ending key of the range.
    * @return - The properties of the column family in the range.
