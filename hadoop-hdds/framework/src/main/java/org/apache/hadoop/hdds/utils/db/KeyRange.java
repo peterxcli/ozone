@@ -48,9 +48,15 @@ public class KeyRange {
   }
 
   public ManagedRange toManagedRange() throws IOException {
-    return new ManagedRange(
-        new ManagedSlice(StringUtils.string2Bytes(startKey)),
-        new ManagedSlice(StringUtils.string2Bytes(endKey)));
+    ManagedSlice start = new ManagedSlice(StringUtils.string2Bytes(startKey));
+    ManagedSlice end = new ManagedSlice(StringUtils.string2Bytes(endKey));
+    try {
+      return new ManagedRange(start, end);
+    } catch (Exception e) {
+      start.close();
+      end.close();
+      throw e;
+    }
   }
 
   @Override

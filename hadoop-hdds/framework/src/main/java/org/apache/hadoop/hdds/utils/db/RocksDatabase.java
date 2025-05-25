@@ -885,7 +885,11 @@ public final class RocksDatabase implements Closeable {
 
   public Map<String, TableProperties> getPropertiesOfColumnFamilyInRange(ColumnFamily columnFamily,
       List<ManagedRange> ranges) throws RocksDatabaseException {
-    return db.getPropertiesOfColumnFamilyInRange(columnFamily.getHandle(), ranges);
+    try {
+      return db.getPropertiesOfColumnFamilyInRange(columnFamily.getHandle(), ranges);
+    } finally {
+      ranges.forEach(ManagedRange::close);
+    }
   }
 
   @Override
