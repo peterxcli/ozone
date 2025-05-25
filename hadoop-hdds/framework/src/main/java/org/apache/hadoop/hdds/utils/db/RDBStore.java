@@ -275,7 +275,7 @@ public class RDBStore implements DBStore {
     List<ManagedRange> rocksRanges = ranges.stream()
         .map(t -> {
           try {
-            return t.toRocksRange();
+            return t.toManagedRange();
           } catch (IOException e) {
             LOG.error("Failed to convert {} to RocksDB Range", t, e);
             return null;
