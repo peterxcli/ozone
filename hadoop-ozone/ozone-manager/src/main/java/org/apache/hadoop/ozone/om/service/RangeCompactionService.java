@@ -47,7 +47,8 @@ public class RangeCompactionService extends BackgroundService {
   private final List<Compactor> compactors;
   private final Map<String, ScheduledExecutorService> compactorExecutors;
   private final long checkIntervalMs;
-  private final int maxEntriesSum;
+  private final long maxCompactionEntries;
+  private final int rangesPerRun;
   private final int minTombstones;
   private final double tombstoneRatio;
 
@@ -59,8 +60,10 @@ public class RangeCompactionService extends BackgroundService {
         ozoneManager.getThreadNamePrefix());
     this.metadataManager = ozoneManager.getMetadataManager();
     this.checkIntervalMs = intervalMs;
-    this.maxEntriesSum = conf.getInt(OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_ENTRIES_SUM,
-        OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_ENTRIES_SUM_DEFAULT);
+    this.maxCompactionEntries = conf.getLong(OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_COMPACTION_ENTRIES,
+        OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_COMPACTION_ENTRIES_DEFAULT);
+    this.rangesPerRun = conf.getInt(OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_RANGES_PER_RUN,
+        OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_RANGES_PER_RUN_DEFAULT);
     this.minTombstones = conf.getInt(OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_MIN_TOMBSTONES,
         OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_MIN_TOMBSTONES_DEFAULT);
     this.tombstoneRatio = conf.getDouble(OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_TOMBSTONE_RATIO,
@@ -106,9 +109,10 @@ public class RangeCompactionService extends BackgroundService {
         .setCompactRangeQueue(tasks)
         .setMetadataManager(metadataManager)
         .setDBStore(metadataManager.getStore())
-        .setMaxEntriesSum(maxEntriesSum)
+        .setMaxCompactionEntries(maxCompactionEntries)
         .setMinTombstones(minTombstones)
-        .setTombstoneRatio(tombstoneRatio);
+        .setTombstoneRatio(tombstoneRatio)
+        .setRangesPerRun(rangesPerRun);
 
     // Initialize compactors for OBS and legacy layout
     try {
