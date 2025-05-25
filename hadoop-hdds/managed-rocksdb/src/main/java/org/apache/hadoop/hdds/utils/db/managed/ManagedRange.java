@@ -22,15 +22,25 @@ import org.rocksdb.Range;
 /**
  * Managed {@link Range}.
  */
-public class ManagedRange {
+public class ManagedRange implements AutoCloseable {
 
   private final Range original;
+  private final ManagedSlice start;
+  private final ManagedSlice limit;
 
   public ManagedRange(final ManagedSlice start, final ManagedSlice limit) {
+    this.start = start;
+    this.limit = limit;
     this.original = new Range(start, limit);
   }
 
   public Range getOriginal() {
     return original;
+  }
+
+  @Override
+  public void close() {
+    start.close();
+    limit.close();
   }
 }
