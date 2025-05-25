@@ -4782,4 +4782,54 @@
       warm up edek cache if none of key successful on OM start up.
     </description>
   </property>
+
+  <!-- Range Compaction Service Configuration -->
+  <property>
+    <name>ozone.om.range.compaction.service.enabled</name>
+    <value>true</value>
+    <tag>OZONE, OM, PERFORMANCE</tag>
+    <description>Enable or disable the range compaction service that compacts specific ranges of data based on tombstone ratio. This service helps improve performance and reduce storage overhead by compacting ranges with high tombstone density.</description>
+  </property>
+
+  <property>
+    <name>ozone.om.range.compaction.service.interval</name>
+    <value>1s</value>
+    <tag>OZONE, OM, PERFORMANCE</tag>
+    <description>The interval at which the range compaction service checks for ranges that need compaction. The service will scan for ranges with high tombstone density at this interval.</description>
+  </property>
+
+  <property>
+    <name>ozone.om.range.compaction.service.max.compaction.entries</name>
+    <value>1000000</value>
+    <tag>OZONE, OM, PERFORMANCE</tag>
+    <description>The maximum number of entries that can be compacted in a single range compaction operation. This limit helps prevent long-running compaction operations that could impact system performance.</description>
+  </property>
+
+  <property>
+    <name>ozone.om.range.compaction.service.min.tombstones</name>
+    <value>10000</value>
+    <tag>OZONE, OM, PERFORMANCE</tag>
+    <description>The minimum number of tombstones required in a range before it is considered for compaction. This threshold helps ensure that only ranges with significant tombstone density are compacted.</description>
+  </property>
+
+  <property>
+    <name>ozone.om.range.compaction.service.ranges.per.run</name>
+    <value>20</value>
+    <tag>OZONE, OM, PERFORMANCE</tag>
+    <description>The number of ranges to process in each run of the range compaction service. This controls the granularity of compaction operations and helps balance system load.</description>
+  </property>
+
+  <property>
+    <name>ozone.om.range.compaction.service.timeout</name>
+    <value>10m</value>
+    <tag>OZONE, OM, PERFORMANCE</tag>
+    <description>The timeout for range compaction operations. If a compaction operation takes longer than this, it will be cancelled to prevent long-running operations from impacting system performance.</description>
+  </property>
+
+  <property>
+    <name>ozone.om.range.compaction.service.tombstone.ratio</name>
+    <value>0.3</value>
+    <tag>OZONE, OM, PERFORMANCE</tag>
+    <description>The ratio of tombstones to total entries that triggers compaction of a range. When the ratio exceeds this threshold, the range will be considered for compaction to improve storage efficiency.</description>
+  </property>
 </configuration>
