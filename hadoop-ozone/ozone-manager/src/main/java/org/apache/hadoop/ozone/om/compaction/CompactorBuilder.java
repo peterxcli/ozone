@@ -31,9 +31,10 @@ public class CompactorBuilder {
   private DBStore db;
   private BackgroundTaskQueue compactRangeQueue;
   private String tableName;
-  private int maxEntriesSum;
+  private long maxCompactionEntries;
   private int minTombstones;
   private double tombstoneRatio;
+  private int rangesPerRun;
 
   private OMMetadataManager metadataManager;
 
@@ -57,8 +58,8 @@ public class CompactorBuilder {
     return this;
   }
 
-  public CompactorBuilder setMaxEntriesSum(int maxEntriesSum) {
-    this.maxEntriesSum = maxEntriesSum;
+  public CompactorBuilder setMaxCompactionEntries(long maxCompactionEntries) {
+    this.maxCompactionEntries = maxCompactionEntries;
     return this;
   }
 
@@ -69,6 +70,11 @@ public class CompactorBuilder {
 
   public CompactorBuilder setTombstoneRatio(double tombstoneRatio) {
     this.tombstoneRatio = tombstoneRatio;
+    return this;
+  }
+
+  public CompactorBuilder setRangesPerRun(int rangesPerRun) {
+    this.rangesPerRun = rangesPerRun;
     return this;
   }
 
@@ -96,8 +102,8 @@ public class CompactorBuilder {
     return tableName;
   }
 
-  public int getMaxEntriesSum() {
-    return maxEntriesSum;
+  public long getMaxCompactionEntries() {
+    return maxCompactionEntries;
   }
 
   public int getMinTombstones() {
@@ -118,5 +124,9 @@ public class CompactorBuilder {
 
   public BackgroundTaskQueue getCompactRangeQueue() {
     return compactRangeQueue;
+  }
+
+  public int getRangesPerRun() {
+    return rangesPerRun;
   }
 }

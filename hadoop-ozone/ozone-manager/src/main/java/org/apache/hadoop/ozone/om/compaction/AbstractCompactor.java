@@ -42,14 +42,16 @@ public abstract class AbstractCompactor implements Compactor {
   private String tableName;
   private BackgroundTaskQueue compactRangeQueue;
 
-  private int maxEntriesSum;
+  private long maxCompactionEntries;
   private int minTombstones;
   private double tombstoneRatio;
+  private int rangesPerRun;
 
   protected AbstractCompactor(CompactorBuilder builder) {
     this.tableName = builder.getTableName();
-    this.maxEntriesSum = builder.getMaxEntriesSum();
+    this.maxCompactionEntries = builder.getMaxCompactionEntries();
     this.minTombstones = builder.getMinTombstones();
+    this.rangesPerRun = builder.getRangesPerRun();
     this.tombstoneRatio = builder.getTombstoneRatio();
     this.metadataManager = builder.getMetadataManager();
     this.dbStore = builder.getDBStore();
@@ -100,8 +102,12 @@ public abstract class AbstractCompactor implements Compactor {
     return metadataManager;
   }
 
-  protected int getMaxEntriesSum() {
-    return maxEntriesSum;
+  protected long getMaxCompactionEntries() {
+    return maxCompactionEntries;
+  }
+
+  protected int getRangesPerRun() {
+    return rangesPerRun;
   }
 
   protected int getMinTombstones() {
