@@ -667,15 +667,18 @@ public final class OMConfigKeys {
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT = "ozone.om.range.compaction.service.timeout";
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT_DEFAULT = "10m";
 
-  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_ENTRIES_SUM 
-        = "ozone.om.range.compaction.service.max.entries.sum";
-  public static final int OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_ENTRIES_SUM_DEFAULT = 1000000;
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_COMPACTION_ENTRIES 
+        = "ozone.om.range.compaction.service.max.compaction.entries";
+  public static final long OZONE_OM_RANGE_COMPACTION_SERVICE_MAX_COMPACTION_ENTRIES_DEFAULT = 1_000_000;
+  public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_RANGES_PER_RUN
+        = "ozone.om.range.compaction.service.ranges.per.run";
+  public static final int OZONE_OM_RANGE_COMPACTION_SERVICE_RANGES_PER_RUN_DEFAULT = 20;
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_TOMBSTONE_RATIO 
         = "ozone.om.range.compaction.service.tombstone.ratio";
   public static final double OZONE_OM_RANGE_COMPACTION_SERVICE_TOMBSTONE_RATIO_DEFAULT = 0.3;
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_MIN_TOMBSTONES 
         = "ozone.om.range.compaction.service.min.tombstones";
-  public static final int OZONE_OM_RANGE_COMPACTION_SERVICE_MIN_TOMBSTONES_DEFAULT = 10000;
+  public static final int OZONE_OM_RANGE_COMPACTION_SERVICE_MIN_TOMBSTONES_DEFAULT = 10_000;
 
   /**
    * Never constructed.
