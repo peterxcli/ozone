@@ -17,6 +17,7 @@
 
 package org.apache.hadoop.ozone.om.compaction;
 
+import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,12 +25,10 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.hdds.StringUtils;
 import org.apache.hadoop.hdds.utils.db.KeyRange;
 import org.apache.hadoop.hdds.utils.db.RDBStore;
-import org.apache.hadoop.hdds.utils.db.RocksDatabaseException;
 import org.apache.hadoop.hdds.utils.db.cache.CacheKey;
 import org.apache.hadoop.hdds.utils.db.cache.CacheValue;
 import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
@@ -37,8 +36,6 @@ import org.rocksdb.LiveFileMetaData;
 import org.rocksdb.TableProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.api.Distribution.Range;
 
 /**
  * Compactor for OBS and legacy layout that compacts based on bucket ranges.
@@ -63,49 +60,39 @@ public class OBSTableCompactor extends AbstractCompactor {
 
   @Override
   protected void collectRangesNeedingCompaction(List<KeyRange> ranges) {
-    long accumulatedEntries = 0;
-    if (nextKey != null) {
-      LOG.info("Last range has been splited, start from the next key {}", nextKey);
-      // TODO: handle pagination
-    }
-
-    while (accumulatedEntries < getMaxEntriesSum()) {
-      KeyRange bucketBound = getNextBucketBound();
-      if (bucketBound == null && accumulatedEntries == 0) {
-        // the last run may reach the end of the iterator, reset the iterator
-        currentBucketUpperBound = null;
-        bucketBound = getNextBucketBound();
-      }
-
-      if (bucketBound == null) {
-        currentBucketUpperBound = null;
-        break;
-      }
-
-      currentBucketUpperBound = bucketBound.getEndKey();
-      KeyRangeStats stats = getRangeStats(bucketBound);
-
-      if (accumulatedEntries + stats.getNumEntries() <= getMaxEntriesSum()) {
-        // If the entire bucket fits within maxEntriesSum, check if it needs compaction
-        if (needsCompaction(stats, getMinTombstones(), getTombstoneRatio())) {
-          // TODO: merge consecutive ranges into one
-          ranges.add(bucketBound);
-          accumulatedEntries += stats.getNumEntries();
+    for (int i = 0; i < getRangesPerRun(); i++) {
+      try {
+        Pair<KeyRange, KeyRangeStats> preparedRange = prepareRanges();
+        if (preparedRange == null) {
+          continue;
         }
-      } else {
-        LOG.info("Bucket {} is too large, need to split", bucketBound);
-        // TODO:Need to split the bucket range
-        // String splitKey = findSplitKey(bucketBound);
-        // if (splitKey != null) {
-          // KeyRange splitRange = new KeyRange(bucketKey, splitKey);
-          // KeyRangeStats splitStats = getRangeStats(splitRange);
-          // if (needsCompaction(splitStats, getMinTombstones(), getTombstoneRatio())) {
-          //   ranges.add(splitRange);
-          // }
-          // nextBucket = bucketKey;
-          // nextKey = splitKey;
-          // break;
-        // }
+        // TODO: merge consecutive ranges if they aren't too big, notice the situation that iterator has been reset
+        // to be more specific, 
+        // constain 1: temp start key and end key are either null or not null at the same time, called them temp range
+        // constain 2: if temp range is submitted, clean temp range
+        // if range is null:
+        //   1. if temp range is not null, then submit and reset the temp range
+        //   otherwise, do nothing
+        // if range is a spiltted range:
+        //   1. if temp range is null, submit the range directly
+        //   2. if temp range is not null and temp accumlated numEntries plus the current range's numEntries 
+        //      is greater than maxEntries, then submit **temp range and the current range**
+        //   3. if temp range is not null, and temp accumlated numEntries plus the current range's numEntries 
+        //      is less than maxEntries, then submit **a range that composed of temp range and the current range**
+        //      (notice the difference between point 2, 3)
+        // if range is not a splitted range:
+        //   1. if temp range is null, update it to the current range's start key, and temp end key as well
+        //   2. if temp range is not null and temp accumlated numEntries plus the current range's numEntries 
+        //     is greater than maxEntries, then submit temp range and set temp range to the current range
+        //   3. if temp range is not null and temp accumlated numEntries plus the current range's numEntries 
+        //      is less than maxEntries, 
+        //      then **set temp range to a range that composed of temp range and the current range**
+        //      (notice the difference between point 2, 3)
+        if (needsCompaction(preparedRange.getRight(), getMinTombstones(), getTombstoneRatio())) {
+          addRangeCompactionTask(preparedRange.getLeft());
+        }
+      } catch (IOException e) {
+        LOG.error("Failed to prepare ranges for compaction", e);
       }
     }
   }
@@ -126,31 +113,121 @@ public class OBSTableCompactor extends AbstractCompactor {
     if (iterator.hasNext()) {
       bucketEndKey = iterator.next().getKey().getCacheKey();
     } else {
-      bucketEndKey = getKeyPrefixUpperBound(bucketStartKey);
+      bucketEndKey = StringUtils.getKeyPrefixUpperBound(bucketStartKey);
     }
     return new KeyRange(bucketStartKey, bucketEndKey);
   }
 
-  private List<KeyRange> prepareRanges() throws IOException {
-    // dd a function to prepare ranges first, start from `nextKey` or
-    // `currentBucketBoundary`.
-    // This can be done by getting the live file metadata list, then use
-    // `getPropsOfTableInRange` to retrieve SSTs in range `[nextKey,
-    // currentBucketBoundary]` or `[currentBucket, currentBucketBoundry]`,
-    // and if there are too many entries in these ranges, we need to further spilt
-    // them into smaller one, them save spilt point in `nextKey` for next round to
-    // use.
-    // In `collectRangesNeedingCompaction`, it call the previous
-    List<KeyRange> ranges;
-    long accumulatedEntries = 0;
-
-    while (accumulatedEntries <= getMaxEntriesSum()) {
-      if (nextKey != null) {
-        // handle pagination
+  /**
+   * Prepare ranges for compaction.
+   * 
+   * @return the prepared ranges, the range and its stats in pair may be **combined** by multiple ranges
+   * @throws IOException if an error occurs
+   */
+  private Pair<KeyRange, KeyRangeStats> prepareRanges() throws IOException {
+    
+    // Get the initial range to process
+    KeyRange currentRange;
+    if (nextKey != null) {
+      // Continue from last split point
+      currentRange = new KeyRange(nextKey, currentBucketUpperBound);
+      // clean up the nextKey
+      nextKey = null;
+    } else {
+      // Start from next bucket boundary
+      KeyRange bucketBound = getNextBucketBound();
+      if (bucketBound == null) {
+        return null;
       }
+      currentRange = new KeyRange(bucketBound.getStartKey(), bucketBound.getEndKey());
     }
-    String startKey, endKey;
+    
+    // Get compound stats for the range
+    CompoundKeyRangeStats compoundStats = getCompoundKeyRangeStatsFromRange(currentRange);
 
+    if (compoundStats.getNumEntries() <= getMaxCompactionEntries()) {
+      return Pair.of(currentRange, compoundStats.getCompoundStats());
+    } else {
+      LOG.info("max compaction entries is {}, but range {} has {} entries, splitting",
+          getMaxCompactionEntries(), currentRange, compoundStats.getNumEntries());
+      List<Pair<KeyRange, KeyRangeStats>> splittedRanges = findFitRanges(
+          compoundStats.getKeyRangeStatsList(), getMaxCompactionEntries());
+      if (splittedRanges == null || splittedRanges.size() == 0) {
+        LOG.warn("splitted ranges is null or empty, return null, current range: {}", currentRange);
+        return null;
+      }
+      Pair<KeyRange, KeyRangeStats> squashedRange = squashRanges(splittedRanges);
+      String squashedRangeEndKeyUpperBound = StringUtils.getKeyPrefixUpperBound(squashedRange.getLeft().getEndKey());
+      if (currentRange.getEndKey().compareTo(squashedRangeEndKeyUpperBound) > 0) {
+        // if the squashed range is not the last range, then we need to split the range
+        nextKey = squashedRangeEndKeyUpperBound;
+        LOG.info("squashed range [{}] is not the last range, need to split, next key: {}",
+            squashedRange, nextKey);
+      } else {
+        LOG.info("squashed range [{}] is the last range, no need to split, " +
+            "probably means there are some SSTs that are ignored", squashedRange);
+      }
+      return squashedRange;
+    }
+  }
+
+  /**
+   * return a list of ranges that each range's numEntries ≤ maxEntries,
+   * and their sum of numEntries are not greater than maxEntries, too.
+   */
+  private List<Pair<KeyRange, KeyRangeStats>> findFitRanges(
+          List<Pair<KeyRange, KeyRangeStats>> ranges, long maxEntries) {
+
+    ranges.sort((a, b) -> a.getLeft().getStartKey().compareTo(b.getLeft().getStartKey()));
+
+    List<Pair<KeyRange, KeyRangeStats>> out = new ArrayList<>();
+
+    KeyRangeStats chunkStats = new KeyRangeStats();
+
+    for (int i = 0; i < ranges.size(); i++) {
+      Pair<KeyRange, KeyRangeStats> range = ranges.get(i);
+      long n = range.getRight().getNumEntries();
+
+      // this single SST already exceeds the threshold
+      if (n > maxEntries) {
+        LOG.warn("Single SST [{}] holds {} entries (> maxEntries {}), it will be ignored.",
+            range.getLeft(), n, maxEntries);
+        continue;
+      }
+
+      // adding this SST would overflow the threshold
+      if (chunkStats.getNumEntries() > 0 && chunkStats.getNumEntries() + n > maxEntries) {
+        LOG.info("Chunk stats [{}] + range [{}]'s numEntries [{}] > maxEntries [{}], fit ranges found",
+            chunkStats, range, n, maxEntries);
+        return out;
+      }
+
+      /* add current SST into (possibly new) chunk */
+      out.add(range);
+      chunkStats.add(range.getRight());
+    }
+
+    return out;
+  }
+
+  /**
+   * Build a KeyRange (start inclusive, end exclusive) that encloses the
+   * SSTs between firstIdx and lastIdx (inclusive).  Uses
+   * getKeyPrefixUpperBound() to make the end key exclusive.
+   */
+  private Pair<KeyRange, KeyRangeStats> squashRanges(
+          List<Pair<KeyRange, KeyRangeStats>> list) {
+    Preconditions.checkNotNull(list, "list is null");
+    Preconditions.checkArgument(list.size() > 0, "list is empty");
+
+    String minKey = list.get(0).getLeft().getStartKey(), maxKey = list.get(0).getLeft().getEndKey();
+    KeyRangeStats stats = new KeyRangeStats();
+    for (Pair<KeyRange, KeyRangeStats> range : list) {
+      minKey = StringUtils.min(minKey, range.getLeft().getStartKey());
+      maxKey = StringUtils.max(maxKey, range.getLeft().getEndKey());
+      stats.add(range.getRight());
+    }
+    return Pair.of(new KeyRange(minKey, maxKey), stats);
   }
 
   private CompoundKeyRangeStats getCompoundKeyRangeStatsFromRange(KeyRange range) throws IOException {
@@ -180,14 +257,4 @@ public class OBSTableCompactor extends AbstractCompactor {
     }
     return new CompoundKeyRangeStats(keyRangeStatsList);
   }
-
-  // private String findSplitKey(KeyRange range) {
-  //   // Binary search to find a split key that keeps the range under maxEntriesSum
-  //   String startKey = range.getStartKey();
-  //   String endKey = range.getEndKey();
-
-  //   // This is a simplified version - in reality, you'd need to implement
-  //   // a proper binary search based on your key format
-  //   return startKey + "\0";
-  // }
 }
