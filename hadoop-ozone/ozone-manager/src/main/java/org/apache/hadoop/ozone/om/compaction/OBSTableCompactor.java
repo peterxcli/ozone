@@ -152,7 +152,7 @@ public class OBSTableCompactor extends AbstractCompactor {
           getMaxCompactionEntries(), currentRange, compoundStats.getNumEntries());
       List<Pair<KeyRange, KeyRangeStats>> splittedRanges = findFitRanges(
           compoundStats.getKeyRangeStatsList(), getMaxCompactionEntries());
-      if (splittedRanges == null || splittedRanges.size() == 0) {
+      if (splittedRanges == null || splittedRanges.isEmpty()) {
         LOG.warn("splitted ranges is null or empty, return null, current range: {}", currentRange);
         return null;
       }
@@ -184,8 +184,7 @@ public class OBSTableCompactor extends AbstractCompactor {
 
     KeyRangeStats chunkStats = new KeyRangeStats();
 
-    for (int i = 0; i < ranges.size(); i++) {
-      Pair<KeyRange, KeyRangeStats> range = ranges.get(i);
+    for (Pair<KeyRange, KeyRangeStats> range : ranges) {
       long n = range.getRight().getNumEntries();
 
       // this single SST already exceeds the threshold
@@ -218,7 +217,7 @@ public class OBSTableCompactor extends AbstractCompactor {
   private Pair<KeyRange, KeyRangeStats> squashRanges(
           List<Pair<KeyRange, KeyRangeStats>> list) {
     Preconditions.checkNotNull(list, "list is null");
-    Preconditions.checkArgument(list.size() > 0, "list is empty");
+    Preconditions.checkArgument(!list.isEmpty(), "list is empty");
 
     String minKey = list.get(0).getLeft().getStartKey(), maxKey = list.get(0).getLeft().getEndKey();
     KeyRangeStats stats = new KeyRangeStats();
