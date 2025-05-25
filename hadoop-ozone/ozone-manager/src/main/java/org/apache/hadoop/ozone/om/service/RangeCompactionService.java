@@ -126,7 +126,7 @@ public class RangeCompactionService extends BackgroundService {
           .build());
       compactors.add(builder.setTableName("fileTable")
           .build());
-      compactors.add(builder.setTableName("deletedDirTable")
+      compactors.add(builder.setTableName("deletedDirectoryTable")
           .build());
     } catch (IOException e) {
       LOG.error("Failed to initialize compactors", e);
