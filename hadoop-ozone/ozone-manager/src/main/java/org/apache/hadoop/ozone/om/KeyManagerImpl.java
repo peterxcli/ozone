@@ -454,6 +454,10 @@ public class KeyManagerImpl implements KeyManager {
       compactionService.shutdown();
       compactionService = null;
     }
+    if (rangeCompactionService != null) {
+      rangeCompactionService.shutdown();
+      rangeCompactionService = null;
+    }
   }
 
   private OmBucketInfo getBucketInfo(String volumeName, String bucketName)

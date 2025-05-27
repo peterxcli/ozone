@@ -89,7 +89,7 @@ public class OBSTableCompactor extends AbstractCompactor {
         //      then **set temp range to a range that composed of temp range and the current range**
         //      (notice the difference between point 2, 3)
         if (needsCompaction(preparedRange.getRight(), getMinTombstones(), getTombstoneRatio())) {
-          addRangeCompactionTask(preparedRange.getLeft());
+          ranges.add(preparedRange.getLeft());
         }
       } catch (IOException e) {
         LOG.error("Failed to prepare ranges for compaction", e);

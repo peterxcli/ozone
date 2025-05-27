@@ -4793,7 +4793,7 @@
 
   <property>
     <name>ozone.om.range.compaction.service.interval</name>
-    <value>1s</value>
+    <value>30s</value>
     <tag>OZONE, OM, PERFORMANCE</tag>
     <description>The interval at which the range compaction service checks for ranges that need compaction. The service will scan for ranges with high tombstone density at this interval.</description>
   </property>
