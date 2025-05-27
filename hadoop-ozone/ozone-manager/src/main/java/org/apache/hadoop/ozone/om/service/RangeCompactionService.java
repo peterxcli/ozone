@@ -72,8 +72,7 @@ public class RangeCompactionService extends BackgroundService {
     this.compactorExecutors = new ConcurrentHashMap<>();
 
     this.tasks = new BackgroundTaskQueue();
-
-    start();
+    initializeCompactors();
   }
 
   @Override
@@ -83,7 +82,6 @@ public class RangeCompactionService extends BackgroundService {
 
   @Override
   public void start() {
-    initializeCompactors();
     scheduleCompactionChecks();
   }
 
@@ -132,11 +130,6 @@ public class RangeCompactionService extends BackgroundService {
       LOG.error("Failed to initialize compactors", e);
       throw new RuntimeException("Failed to initialize compactors", e);
     }
-
-    // Initialize all compactors
-    // for (Compactor compactor : compactors) {
-    //   compactor.init(metadataManager, dbStore);
-    // }
   }
 
   private void scheduleCompactionChecks() {
@@ -147,7 +140,7 @@ public class RangeCompactionService extends BackgroundService {
       
       executor.scheduleWithFixedDelay(
           compactor::run,
-          checkIntervalMs,
+          checkIntervalMs, // TODO: randomize the start time
           checkIntervalMs,
           TimeUnit.MILLISECONDS);
     }
