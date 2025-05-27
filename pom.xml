@@ -1950,6 +1950,7 @@
                       <allowedImport>org.rocksdb.InfoLogLevel</allowedImport>
                       <allowedImport>org.rocksdb.OptionsUtil</allowedImport>
                       <allowedImport>org.rocksdb.RocksDBException</allowedImport>
+                      <allowedImport>org.rocksdb.Range</allowedImport>
                       <allowedImport>org.rocksdb.StatsLevel</allowedImport>
                       <allowedImport>org.rocksdb.TableProperties</allowedImport>
                       <allowedImport>org.rocksdb.TransactionLogIterator.BatchResult</allowedImport>

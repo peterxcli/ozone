@@ -48,12 +48,13 @@ import org.apache.hadoop.hdds.utils.db.RocksDatabase.ColumnFamily;
 import org.apache.hadoop.hdds.utils.db.cache.TableCache;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedCompactRangeOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedDBOptions;
-import org.apache.hadoop.hdds.utils.db.managed.ManagedRange;
+import org.apache.hadoop.hdds.utils.db.managed.ManagedSlice;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedStatistics;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedTransactionLogIterator;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedWriteOptions;
 import org.apache.ozone.rocksdiff.RocksDBCheckpointDiffer;
 import org.apache.ozone.rocksdiff.RocksDBCheckpointDiffer.RocksDBCheckpointDifferHolder;
+import org.rocksdb.Range;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.TableProperties;
 import org.rocksdb.TransactionLogIterator.BatchResult;
@@ -272,18 +273,19 @@ public class RDBStore implements DBStore {
       throw new IOException("No such table in this DB. TableName : " + tableName);
     }
     
-    List<ManagedRange> rocksRanges = ranges.stream()
+    List<Range> rocksRanges = ranges.stream()
         .map(t -> {
-          try {
-            return t.toManagedRange();
-          } catch (IOException e) {
-            LOG.error("Failed to convert {} to RocksDB Range", t, e);
-            return null;
-          }
+          ManagedSlice start = new ManagedSlice(StringUtils.string2Bytes(t.getStartKey()));
+          ManagedSlice end = new ManagedSlice(StringUtils.string2Bytes(t.getEndKey()));
+          return new Range(start, end);
         })
         .filter(Objects::nonNull)
         .collect(Collectors.toList());
-    return db.getPropertiesOfColumnFamilyInRange(columnFamily, rocksRanges);
+    try {
+      return db.getPropertiesOfColumnFamilyInRange(columnFamily, rocksRanges);
+    } catch (RocksDatabaseException e) {
+      throw new IOException("Failed to get properties of table in range", e);
+    }
   }
 
   @Override

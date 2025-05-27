@@ -48,7 +48,6 @@ import org.apache.hadoop.hdds.utils.db.managed.ManagedDBOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedFlushOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedIngestExternalFileOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedOptions;
-import org.apache.hadoop.hdds.utils.db.managed.ManagedRange;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedReadOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedRocksDB;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedRocksIterator;
@@ -64,6 +63,7 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.Holder;
 import org.rocksdb.KeyMayExist;
 import org.rocksdb.LiveFileMetaData;
+import org.rocksdb.Range;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.TableProperties;
 import org.slf4j.Logger;
@@ -884,11 +884,11 @@ public final class RocksDatabase implements Closeable {
   }
 
   public Map<String, TableProperties> getPropertiesOfColumnFamilyInRange(ColumnFamily columnFamily,
-      List<ManagedRange> ranges) throws RocksDatabaseException {
-    try {
-      return db.getPropertiesOfColumnFamilyInRange(columnFamily.getHandle(), ranges);
-    } finally {
-      ranges.forEach(ManagedRange::close);
+      List<Range> ranges) throws RocksDatabaseException {
+    try (UncheckedAutoCloseable ignored = acquire()) {
+      return db.get().getPropertiesOfTablesInRange(columnFamily.getHandle(), ranges);
+    } catch (RocksDBException e) {
+      throw new RocksDatabaseException("Failed to get properties of column family in range", e);
     }
   }
 

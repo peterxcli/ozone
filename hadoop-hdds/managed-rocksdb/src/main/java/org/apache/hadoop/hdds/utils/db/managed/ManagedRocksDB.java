@@ -30,7 +30,6 @@ import org.rocksdb.DBOptions;
 import org.rocksdb.LiveFileMetaData;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
-import org.rocksdb.TableProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -123,16 +122,5 @@ public class ManagedRocksDB extends ManagedObject<RocksDB> {
 
   public Map<String, LiveFileMetaData> getLiveMetadataForSSTFiles() {
     return getLiveMetadataForSSTFiles(this.get());
-  }
-
-  public Map<String, TableProperties> getPropertiesOfColumnFamilyInRange(ColumnFamilyHandle columnFamilyHandle,
-      List<ManagedRange> ranges) throws RocksDatabaseException {
-    try {
-      return get().getPropertiesOfTablesInRange(ranges.stream()
-          .map(ManagedRange::getOriginal)
-          .collect(Collectors.toList()));
-    } catch (RocksDBException e) {
-      throw new RocksDatabaseException("Failed to get properties of column family in range", e);
-    }
   }
 }
