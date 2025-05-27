@@ -102,9 +102,6 @@ public final class StringUtils {
     return key.substring(0, key.length() - 1) + (char)(key.charAt(key.length() - 1) + 1);
   }
 
-  /**
-   * Return the max string between str1 and str2, if both are null, return null.
-   */
   public static String max(String str1, String str2) {
     return str1.compareTo(str2) > 0 ? str1 : str2;
   }
