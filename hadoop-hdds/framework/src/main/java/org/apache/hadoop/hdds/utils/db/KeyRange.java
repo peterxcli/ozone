@@ -17,10 +17,7 @@
 
 package org.apache.hadoop.hdds.utils.db;
 
-import java.io.IOException;
 import org.apache.hadoop.hdds.StringUtils;
-import org.apache.hadoop.hdds.utils.db.managed.ManagedRange;
-import org.apache.hadoop.hdds.utils.db.managed.ManagedSlice;
 
 /**
  * Represents a range of keys for compaction.
@@ -45,18 +42,6 @@ public class KeyRange {
 
   public String getEndKey() {
     return endKey;
-  }
-
-  public ManagedRange toManagedRange() throws IOException {
-    ManagedSlice start = new ManagedSlice(StringUtils.string2Bytes(startKey));
-    ManagedSlice end = new ManagedSlice(StringUtils.string2Bytes(endKey));
-    try {
-      return new ManagedRange(start, end);
-    } catch (Exception e) {
-      start.close();
-      end.close();
-      throw e;
-    }
   }
 
   @Override
