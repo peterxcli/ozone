@@ -51,6 +51,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.rocksdb.RocksDB;
 import org.rocksdb.Statistics;
 import org.rocksdb.StatsLevel;
+import org.rocksdb.TableProperties;
 
 /**
  * RDBStore Tests.
@@ -466,5 +467,44 @@ public class TestRDBStore {
         assertArrayEquals(content1, content2);
       }
     }
+  }
+
+  @Test
+  public void testGetPropertiesOfTableInRange() throws Exception {
+    // Insert 100 keys with predictable names into the "First" column family
+    String tableName = families.get(1);
+    try (Table<byte[], byte[]> table = rdbStore.getTable(tableName)) {
+      for (int i = 0; i < 100; i++) {
+        String keyStr = String.format("key%03d", i);
+        byte[] key = keyStr.getBytes(StandardCharsets.UTF_8);
+        byte[] value = ("value" + i).getBytes(StandardCharsets.UTF_8);
+        table.put(key, value);
+        // Flush periodically to make sure keys are written to SST files so that
+        // RocksDB can report properties.
+        if (i % 10 == 9) {
+          rdbStore.flushDB();
+        }
+      }
+    }
+    // Ensure any remaining data is flushed.
+    rdbStore.flushDB();
+
+    // Fetch table properties for the full key range we just inserted.
+    Map<String, TableProperties> propsMap = rdbStore.getPropertiesOfTableInRange(
+        tableName, "key000", "key099");
+
+    assertNotNull(propsMap, "Properties map should not be null");
+    assertFalse(propsMap.isEmpty(), "Properties map should not be empty");
+
+    long totalEntries = 0;
+    long totalDeletions = 0;
+    for (TableProperties props : propsMap.values()) {
+      totalEntries += props.getNumEntries();
+      totalDeletions += props.getNumDeletions();
+    }
+
+    // We inserted exactly 100 keys and did not delete any.
+    assertEquals(100, totalEntries, "Total number of entries reported should match the inserted keys");
+    assertEquals(0, totalDeletions, "There should be no deletion entries reported");
   }
 }
