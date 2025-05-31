@@ -63,7 +63,9 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.Holder;
 import org.rocksdb.KeyMayExist;
 import org.rocksdb.LiveFileMetaData;
+import org.rocksdb.Range;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.TableProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -878,6 +880,16 @@ public final class RocksDatabase implements Closeable {
           db.deleteFile(liveFileMetaData);
         }
       }
+    }
+  }
+
+  public Map<String, TableProperties> getPropertiesOfColumnFamilyInRange(ColumnFamily columnFamily,
+      List<Range> ranges) throws RocksDatabaseException {
+    try (UncheckedAutoCloseable ignored = acquire()) {
+      return db.get().getPropertiesOfTablesInRange(columnFamily.getHandle(), ranges);
+    } catch (RocksDBException e) {
+      closeOnError(e);
+      throw toRocksDatabaseException(this, "getPropertiesOfColumnFamilyInRange", e);
     }
   }
 

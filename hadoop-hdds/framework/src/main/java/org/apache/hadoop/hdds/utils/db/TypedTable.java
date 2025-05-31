@@ -460,6 +460,11 @@ public class TypedTable<KEY, VALUE> implements Table<KEY, VALUE> {
   }
 
   @Override
+  public Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>> cacheIterator(KEY startKey) {
+    return cache.iterator(startKey);
+  }
+
+  @Override
   public TableCacheMetrics createCacheMetrics() {
     return TableCacheMetrics.create(cache, getName());
   }

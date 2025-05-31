@@ -56,6 +56,12 @@ import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_OPEN_KEY_CLEANUP_
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_OPEN_KEY_CLEANUP_SERVICE_INTERVAL_DEFAULT;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_OPEN_KEY_CLEANUP_SERVICE_TIMEOUT;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_OPEN_KEY_CLEANUP_SERVICE_TIMEOUT_DEFAULT;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED_DEFAULT;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL_DEFAULT;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT_DEFAULT;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SNAPSHOT_DEEP_CLEANING_ENABLED;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SNAPSHOT_DEEP_CLEANING_ENABLED_DEFAULT;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SNAPSHOT_DIRECTORY_SERVICE_INTERVAL;
@@ -168,6 +174,7 @@ import org.apache.hadoop.ozone.om.service.DirectoryDeletingService;
 import org.apache.hadoop.ozone.om.service.KeyDeletingService;
 import org.apache.hadoop.ozone.om.service.MultipartUploadCleanupService;
 import org.apache.hadoop.ozone.om.service.OpenKeyCleanupService;
+import org.apache.hadoop.ozone.om.service.RangeCompactionService;
 import org.apache.hadoop.ozone.om.service.SnapshotDeletingService;
 import org.apache.hadoop.ozone.om.service.SnapshotDirectoryCleaningService;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.ExpiredMultipartUploadsBucket;
@@ -215,6 +222,7 @@ public class KeyManagerImpl implements KeyManager {
   private SnapshotDirectoryCleaningService snapshotDirectoryCleaningService;
   private DNSToSwitchMapping dnsToSwitchMapping;
   private CompactionService compactionService;
+  private RangeCompactionService rangeCompactionService;
 
   public KeyManagerImpl(OzoneManager om, ScmClient scmClient,
       OzoneConfiguration conf, OMPerformanceMetrics metrics) {
@@ -247,6 +255,10 @@ public class KeyManagerImpl implements KeyManager {
     boolean isCompactionEnabled = configuration.getBoolean(OZONE_OM_COMPACTION_SERVICE_ENABLED,
         OZONE_OM_COMPACTION_SERVICE_ENABLED_DEFAULT);
     startCompactionService(configuration, isCompactionEnabled);
+
+    boolean isRangeCompactionEnabled = configuration.getBoolean(OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED,
+        OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED_DEFAULT);
+    startRangeCompactionService(configuration, isRangeCompactionEnabled);
 
     boolean isSnapshotDeepCleaningEnabled = configuration.getBoolean(OZONE_SNAPSHOT_DEEP_CLEANING_ENABLED,
         OZONE_SNAPSHOT_DEEP_CLEANING_ENABLED_DEFAULT);
@@ -411,6 +423,23 @@ public class KeyManagerImpl implements KeyManager {
     }
   }
 
+  private void startRangeCompactionService(OzoneConfiguration configuration,
+                                          boolean isRangeCompactionEnabled) {
+    if (rangeCompactionService == null && isRangeCompactionEnabled) {
+      long serviceIntervalMs = configuration.getTimeDuration(
+          OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL,
+          OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL_DEFAULT,
+          TimeUnit.MILLISECONDS);
+      long serviceTimeoutMs = configuration.getTimeDuration(
+          OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT,
+          OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT_DEFAULT,
+          TimeUnit.MILLISECONDS);
+      rangeCompactionService = new RangeCompactionService(configuration, ozoneManager,
+          serviceIntervalMs, serviceTimeoutMs);
+      rangeCompactionService.start();
+    }
+  }
+
   KeyProviderCryptoExtension getKMSProvider() {
     return kmsProvider;
   }
@@ -448,6 +477,10 @@ public class KeyManagerImpl implements KeyManager {
     if (compactionService != null) {
       compactionService.shutdown();
       compactionService = null;
+    }
+    if (rangeCompactionService != null) {
+      rangeCompactionService.shutdown();
+      rangeCompactionService = null;
     }
   }
 
