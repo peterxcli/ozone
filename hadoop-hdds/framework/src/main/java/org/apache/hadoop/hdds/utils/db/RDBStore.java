@@ -37,9 +37,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.hadoop.hdds.StringUtils;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.utils.IOUtils;
@@ -234,6 +232,10 @@ public class RDBStore implements DBStore {
   public void compactTable(String tableName) throws IOException {
     try (ManagedCompactRangeOptions options = new ManagedCompactRangeOptions()) {
       compactTable(tableName, options);
+    }
+  }
+
+  @Override
   public void compactTable(String tableName, String startKey, String endKey) throws IOException {
     try (ManagedCompactRangeOptions options = new ManagedCompactRangeOptions()) {
       compactTable(tableName, startKey, endKey, options);
@@ -241,16 +243,18 @@ public class RDBStore implements DBStore {
   }
 
   @Override
-
   public void compactTable(String tableName, ManagedCompactRangeOptions options) throws IOException {
     RocksDatabase.ColumnFamily columnFamily = db.getColumnFamily(tableName);
+    if (columnFamily == null) {
       throw new IOException("Table not found: " + tableName);
     }
     db.compactRange(columnFamily, null, null, options);
   }
 
+  @Override
   public void compactTable(String tableName, String startKey, String endKey,
       ManagedCompactRangeOptions options) throws IOException {
+    ColumnFamily columnFamily = db.getColumnFamily(tableName);
     if (columnFamily == null) {
       throw new IOException("No such table in this DB. TableName : " + tableName);
     }
@@ -261,8 +265,9 @@ public class RDBStore implements DBStore {
   @Override
   public Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, String startKey,
       String endKey) throws IOException {
-    return getPropertiesOfTableInRange(tableName, 
+    Map<String, TableProperties> result = getPropertiesOfTableInRange(tableName, 
         Collections.singletonList(new KeyRange(startKey, endKey)));
+    return result;
   }
 
   @Override
@@ -273,18 +278,28 @@ public class RDBStore implements DBStore {
       throw new IOException("No such table in this DB. TableName : " + tableName);
     }
     
-    List<Range> rocksRanges = ranges.stream()
-        .map(t -> {
-          ManagedSlice start = new ManagedSlice(StringUtils.string2Bytes(t.getStartKey()));
-          ManagedSlice end = new ManagedSlice(StringUtils.string2Bytes(t.getEndKey()));
-          return new Range(start, end);
-        })
-        .filter(Objects::nonNull)
-        .collect(Collectors.toList());
+    List<Range> rocksRanges = new ArrayList<>();
+    List<ManagedSlice> managedSlices = new ArrayList<>();
     try {
+      for (KeyRange t : ranges) {
+        ManagedSlice start = new ManagedSlice(StringUtils.string2Bytes(t.getStartKey()));
+        ManagedSlice end = new ManagedSlice(StringUtils.string2Bytes(t.getEndKey()));
+        managedSlices.add(start);
+        managedSlices.add(end);
+        rocksRanges.add(new Range(start, end));
+      }
       return db.getPropertiesOfColumnFamilyInRange(columnFamily, rocksRanges);
     } catch (RocksDatabaseException e) {
       throw new IOException("Failed to get properties of table in range", e);
+    } finally {
+      // Close all ManagedSlice objects
+      for (ManagedSlice slice : managedSlices) {
+        try {
+          slice.close();
+        } catch (Exception e) {
+          LOG.warn("Failed to close ManagedSlice", e);
+        }
+      }
     }
   }
 
