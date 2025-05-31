@@ -888,7 +888,8 @@ public final class RocksDatabase implements Closeable {
     try (UncheckedAutoCloseable ignored = acquire()) {
       return db.get().getPropertiesOfTablesInRange(columnFamily.getHandle(), ranges);
     } catch (RocksDBException e) {
-      throw new RocksDatabaseException("Failed to get properties of column family in range", e);
+      closeOnError(e);
+      throw toRocksDatabaseException(this, "getPropertiesOfColumnFamilyInRange", e);
     }
   }
 
