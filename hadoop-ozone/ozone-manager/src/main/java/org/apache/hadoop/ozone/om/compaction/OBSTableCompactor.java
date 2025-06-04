@@ -260,6 +260,8 @@ public class OBSTableCompactor extends AbstractCompactor {
       KeyRange keyRange = new KeyRange(meta.smallestKey(), meta.largestKey());
       KeyRangeStats stats = KeyRangeStats.fromTableProperties(entry.getValue());
       keyRangeStatsList.add(Pair.of(keyRange, stats));
+    }
+
     CompoundKeyRangeStats result = new CompoundKeyRangeStats(keyRangeStatsList);
     return result;
   }
