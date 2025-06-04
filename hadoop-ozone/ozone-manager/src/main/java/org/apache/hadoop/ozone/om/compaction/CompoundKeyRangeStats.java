@@ -26,10 +26,13 @@ import org.apache.hadoop.hdds.utils.db.KeyRange;
  * compound KeyRangeStats.
  */
 public class CompoundKeyRangeStats {
-  private KeyRangeStats compoundStats;
-  private List<Pair<KeyRange, KeyRangeStats>> keyRangeStatsList;
+  private KeyRangeStats compoundStats = null;
+  private List<Pair<KeyRange, KeyRangeStats>> keyRangeStatsList = null;
 
   public CompoundKeyRangeStats(List<Pair<KeyRange, KeyRangeStats>> keyRangeStatsList) {
+    if (keyRangeStatsList == null || keyRangeStatsList.isEmpty()) {
+      return;
+    }
     this.keyRangeStatsList = keyRangeStatsList;
     for (Pair<KeyRange, KeyRangeStats> entry : keyRangeStatsList) {
       if (compoundStats == null) {
@@ -67,6 +70,10 @@ public class CompoundKeyRangeStats {
   public void add(CompoundKeyRangeStats other) {
     compoundStats.add(other.getCompoundStats());
     keyRangeStatsList.addAll(other.getKeyRangeStatsList());
+  }
+
+  public boolean isEmpty() {
+    return keyRangeStatsList == null || keyRangeStatsList.isEmpty() || compoundStats == null;
   }
 
   @Override
