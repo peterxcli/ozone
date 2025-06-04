@@ -52,9 +52,13 @@ public class OBSTableCompactor extends AbstractCompactor {
 
   @Override
   public void run() {
-    List<KeyRange> ranges = getRangesNeedingCompaction();
-    for (KeyRange range : ranges) {
-      addRangeCompactionTask(range);
+    try {
+      List<KeyRange> ranges = getRangesNeedingCompaction();
+      for (KeyRange range : ranges) {
+        addRangeCompactionTask(range);
+      }
+    } catch (Exception e) {
+      LOG.error("Failed to run range compaction for table {}", getTableName(), e);
     }
   }
 
@@ -144,6 +148,9 @@ public class OBSTableCompactor extends AbstractCompactor {
     
     // Get compound stats for the range
     CompoundKeyRangeStats compoundStats = getCompoundKeyRangeStatsFromRange(currentRange);
+    if (compoundStats.isEmpty()) {
+      return null;
+    }
 
     if (compoundStats.getNumEntries() <= getMaxCompactionEntries()) {
       return Pair.of(currentRange, compoundStats.getCompoundStats());
@@ -253,7 +260,7 @@ public class OBSTableCompactor extends AbstractCompactor {
       KeyRange keyRange = new KeyRange(meta.smallestKey(), meta.largestKey());
       KeyRangeStats stats = KeyRangeStats.fromTableProperties(entry.getValue());
       keyRangeStatsList.add(Pair.of(keyRange, stats));
-    }
-    return new CompoundKeyRangeStats(keyRangeStatsList);
+    CompoundKeyRangeStats result = new CompoundKeyRangeStats(keyRangeStatsList);
+    return result;
   }
 }
