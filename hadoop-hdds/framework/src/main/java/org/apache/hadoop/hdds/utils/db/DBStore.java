@@ -144,7 +144,6 @@ public interface DBStore extends Closeable, BatchOperationHandler {
   
   Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, List<KeyRange> ranges)
       throws IOException;
-  
 
   /**
    * Moves a key from the Source Table to the destination Table.
