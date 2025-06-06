@@ -237,9 +237,11 @@ public class RDBStore implements DBStore {
 
   @Override
   public void compactTable(String tableName, String startKey, String endKey) throws IOException {
+    LOG.info("Starting table compaction for table: {}, range: [{} - {}]", tableName, startKey, endKey);
     try (ManagedCompactRangeOptions options = new ManagedCompactRangeOptions()) {
       compactTable(tableName, startKey, endKey, options);
     }
+    LOG.info("Completed table compaction for table: {}, range: [{} - {}]", tableName, startKey, endKey);
   }
 
   @Override
@@ -254,27 +256,35 @@ public class RDBStore implements DBStore {
   @Override
   public void compactTable(String tableName, String startKey, String endKey,
       ManagedCompactRangeOptions options) throws IOException {
+    LOG.info("Starting table compaction with options for table: {}, range: [{} - {}]", tableName, startKey, endKey);
     ColumnFamily columnFamily = db.getColumnFamily(tableName);
     if (columnFamily == null) {
+      LOG.error("Table not found for compaction: {}", tableName);
       throw new IOException("No such table in this DB. TableName : " + tableName);
     }
     db.compactRange(columnFamily, StringUtils.string2Bytes(startKey),
         StringUtils.string2Bytes(endKey), options);
+    LOG.info("Completed table compaction with options for table: {}, range: [{} - {}]", tableName, startKey, endKey);
   }
 
   @Override
   public Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, String startKey,
       String endKey) throws IOException {
+    LOG.info("Getting table properties for table: {}, range: [{} - {}]", tableName, startKey, endKey);
     Map<String, TableProperties> result = getPropertiesOfTableInRange(tableName, 
         Collections.singletonList(new KeyRange(startKey, endKey)));
+    LOG.info("Retrieved {} table properties for table: {}, range: [{} - {}]", 
+        result.size(), tableName, startKey, endKey);
     return result;
   }
 
   @Override
   public Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, 
       List<KeyRange> ranges) throws IOException {
+    LOG.info("Getting table properties for table: {}, number of ranges: {}", tableName, ranges.size());
     ColumnFamily columnFamily = db.getColumnFamily(tableName);
     if (columnFamily == null) {
+      LOG.error("Table not found for getting properties: {}", tableName);
       throw new IOException("No such table in this DB. TableName : " + tableName);
     }
     
@@ -288,6 +298,7 @@ public class RDBStore implements DBStore {
         managedSlices.add(end);
         rocksRanges.add(new Range(start, end));
       }
+      LOG.info("Converted {} ranges to RocksDB ranges, start to get properties", rocksRanges.size());
       return db.getPropertiesOfColumnFamilyInRange(columnFamily, rocksRanges);
     } catch (RocksDatabaseException e) {
       throw new IOException("Failed to get properties of table in range", e);
