@@ -68,7 +68,7 @@ public class OBSTableCompactor extends AbstractCompactor {
       try {
         Pair<KeyRange, KeyRangeStats> preparedRange = prepareRanges();
         if (preparedRange == null) {
-          continue;
+          break;
         }
         // TODO: merge consecutive ranges if they aren't too big, notice the situation that iterator has been reset
         // to be more specific, 
@@ -116,8 +116,10 @@ public class OBSTableCompactor extends AbstractCompactor {
     String bucketStartKey = iterator.next().getKey().getCacheKey(), bucketEndKey;
     if (iterator.hasNext()) {
       bucketEndKey = iterator.next().getKey().getCacheKey();
+      currentBucketUpperBound = bucketEndKey;
     } else {
       bucketEndKey = StringUtils.getKeyPrefixUpperBound(bucketStartKey);
+      currentBucketUpperBound = null;
     }
     return new KeyRange(bucketStartKey, bucketEndKey);
   }
@@ -149,7 +151,7 @@ public class OBSTableCompactor extends AbstractCompactor {
     // Get compound stats for the range
     CompoundKeyRangeStats compoundStats = getCompoundKeyRangeStatsFromRange(currentRange);
     if (compoundStats.isEmpty()) {
-      return null;
+      return Pair.of(currentRange, new KeyRangeStats());
     }
 
     if (compoundStats.getNumEntries() <= getMaxCompactionEntries()) {
@@ -161,7 +163,7 @@ public class OBSTableCompactor extends AbstractCompactor {
           compoundStats.getKeyRangeStatsList(), getMaxCompactionEntries());
       if (splittedRanges == null || splittedRanges.isEmpty()) {
         LOG.warn("splitted ranges is null or empty, return null, current range: {}", currentRange);
-        return null;
+        return Pair.of(currentRange, compoundStats.getCompoundStats());
       }
       Pair<KeyRange, KeyRangeStats> squashedRange = squashRanges(splittedRanges);
       String squashedRangeEndKeyUpperBound = StringUtils.getKeyPrefixUpperBound(squashedRange.getLeft().getEndKey());
@@ -233,7 +235,8 @@ public class OBSTableCompactor extends AbstractCompactor {
       maxKey = StringUtils.max(maxKey, range.getLeft().getEndKey());
       stats.add(range.getRight());
     }
-    return Pair.of(new KeyRange(minKey, maxKey), stats);
+    KeyRange squashedRange = new KeyRange(minKey, maxKey);
+    return Pair.of(squashedRange, stats);
   }
 
   private CompoundKeyRangeStats getCompoundKeyRangeStatsFromRange(KeyRange range) throws IOException {
@@ -243,18 +246,17 @@ public class OBSTableCompactor extends AbstractCompactor {
     // https://github.com/facebook/rocksdb/blob/09cd25f76305f2110131f51068656ab392dc2bf5/db/version_set.cc#L1744-L1768
     // https://github.com/facebook/rocksdb/blob/a00391c72996a5dbdd93a621dbc53719c13b05c4/file/filename.cc#L140-L150
     for (LiveFileMetaData metaData : liveFileMetaDataList) {
-      fileMap.put(metaData.fileName(), metaData);
+      fileMap.put(metaData.path() + metaData.fileName(), metaData);
     }
 
     Map<String, TableProperties> propsMap = getDBStore().getPropertiesOfTableInRange(getTableName(),
         Collections.singletonList(range));
 
     for (Map.Entry<String, TableProperties> entry : propsMap.entrySet()) {
-      String fullPath = entry.getKey();
-      String fileName = fullPath.substring(fullPath.lastIndexOf('/') + 1);
-      LiveFileMetaData meta = fileMap.get(fileName);
+      String filePath = entry.getKey();
+      LiveFileMetaData meta = fileMap.get(filePath);
       if (meta == null) {
-        LOG.warn("LiveFileMetaData not found for file {}", fullPath);
+        LOG.warn("LiveFileMetaData not found for file {}", filePath);
         continue;
       }
       KeyRange keyRange = new KeyRange(meta.smallestKey(), meta.largestKey());
