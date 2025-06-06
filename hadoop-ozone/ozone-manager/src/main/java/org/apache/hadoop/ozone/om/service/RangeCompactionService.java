@@ -138,6 +138,7 @@ public class RangeCompactionService extends BackgroundService {
       ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
       compactorExecutors.put(tableName, executor);
       
+      LOG.info("Scheduling range compaction compactor for table {}", tableName);
       executor.scheduleWithFixedDelay(
           compactor::run,
           checkIntervalMs, // TODO: randomize the start time
