@@ -232,6 +232,14 @@ public interface Table<KEY, VALUE> extends AutoCloseable {
   }
 
   /**
+   * Return cache iterator maintained for this table.
+   */
+  default Iterator<Map.Entry<CacheKey<KEY>, CacheValue<VALUE>>>
+      cacheIterator(KEY startKey) {
+    throw new NotImplementedException("cacheIterator with startKey is not implemented");
+  }
+
+  /**
    * Create the metrics datasource that emits table cache metrics.
    */
   default TableCacheMetrics createCacheMetrics() throws IOException {
