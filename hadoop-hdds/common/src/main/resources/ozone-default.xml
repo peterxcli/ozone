@@ -4786,7 +4786,7 @@
   <!-- Range Compaction Service Configuration -->
   <property>
     <name>ozone.om.range.compaction.service.enabled</name>
-    <value>true</value>
+    <value>false</value>
     <tag>OZONE, OM, PERFORMANCE</tag>
     <description>Enable or disable the range compaction service that compacts specific ranges of data based on tombstone ratio. This service helps improve performance and reduce storage overhead by compacting ranges with high tombstone density.</description>
   </property>

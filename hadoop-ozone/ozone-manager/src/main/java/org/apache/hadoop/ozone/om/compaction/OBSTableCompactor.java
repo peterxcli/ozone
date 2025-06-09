@@ -125,6 +125,7 @@ public class OBSTableCompactor extends AbstractCompactor {
         .getBucketIterator(currentBucketUpperBound);
     if (!iterator.hasNext()) {
       LOG.info("No more bucket bounds found");
+      currentBucketUpperBound = null;
       return null;
     }
 
@@ -135,7 +136,7 @@ public class OBSTableCompactor extends AbstractCompactor {
       LOG.info("Found bucket range: [{} - {}]", bucketStartKey, bucketEndKey);
     } else {
       bucketEndKey = StringUtils.getKeyPrefixUpperBound(bucketStartKey);
-      currentBucketUpperBound = null;
+      currentBucketUpperBound = bucketEndKey;
       LOG.info("Found last bucket range: [{} - {}]", bucketStartKey, bucketEndKey);
     }
     return new KeyRange(bucketStartKey, bucketEndKey);

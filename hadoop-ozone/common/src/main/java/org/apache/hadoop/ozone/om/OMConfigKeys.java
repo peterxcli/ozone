@@ -661,7 +661,7 @@ public final class OMConfigKeys {
    * Configuration keys for RocksDB range compaction service.
    */
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED = "ozone.om.range.compaction.service.enabled";
-  public static final boolean OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED_DEFAULT = true;
+  public static final boolean OZONE_OM_RANGE_COMPACTION_SERVICE_ENABLED_DEFAULT = false;
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL = "ozone.om.range.compaction.service.interval";
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_INTERVAL_DEFAULT = "30s";
   public static final String OZONE_OM_RANGE_COMPACTION_SERVICE_TIMEOUT = "ozone.om.range.compaction.service.timeout";
