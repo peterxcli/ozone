@@ -78,6 +78,10 @@ public class OmKeyBenchGenerator extends BaseFreonGenerator implements Runnable 
       + StorageSizeConverter.STORAGE_SIZE_DESCRIPTION, converter = StorageSizeConverter.class)
   private StorageSize dataSize;
 
+  @Option(names = { "--max-live-keys" }, defaultValue = "100000", 
+      description = "Maximum number of live keys to maintain for DELETE/LIST operations")
+  private int maxLiveKeys;
+
   @Mixin
   private FreonReplicationOptions replicationOpt;
 
@@ -169,6 +173,11 @@ public class OmKeyBenchGenerator extends BaseFreonGenerator implements Runnable 
 
   /* ---------------- operations ---------------- */
 
+  /**
+   * Creates a key and optionally adds it to the liveKeys set for future DELETE/LIST operations.
+   * When the liveKeys set reaches maxLiveKeys limit, new keys are still created but not added
+   * to the set, preventing performance degradation from large set operations.
+   */
   private void createKey(long counter) throws Exception {
     String key = formatKey(counter);
     Timer timer = getMetrics().timer(Op.CREATE.name());
@@ -177,7 +186,11 @@ public class OmKeyBenchGenerator extends BaseFreonGenerator implements Runnable 
         contentGen.write(os);
       }
       createdCounter.increment();
-      liveKeys.add(key);
+      
+      // Only add to liveKeys if we haven't reached the limit
+      if (liveKeys.size() < maxLiveKeys) {
+        liveKeys.add(key);
+      }
       return null;
     });
   }
@@ -232,8 +245,15 @@ public class OmKeyBenchGenerator extends BaseFreonGenerator implements Runnable 
     if (size == 0) {
       return null;
     }
-    int index = ThreadLocalRandom.current().nextInt(size);
-    return liveKeys.stream().skip(index).findFirst().orElse(null);
+    
+    // Convert to array for O(1) random access - more efficient than stream().skip()
+    String[] keysArray = liveKeys.toArray(new String[0]);
+    if (keysArray.length == 0) {
+      return null; // Race condition check
+    }
+    
+    int index = ThreadLocalRandom.current().nextInt(keysArray.length);
+    return keysArray[index];
   }
 
   private static String formatKey(long n) {
@@ -247,8 +267,13 @@ public class OmKeyBenchGenerator extends BaseFreonGenerator implements Runnable 
     final Map<String, Instant> instantsRecorder = new HashMap<>();
     return () -> {
       StringBuilder sb = new StringBuilder();
-      sb.append(String.format("live=%d created=%d deleted=%d", liveKeys.size(),
+      int currentLiveKeys = liveKeys.size();
+      sb.append(String.format("live=%d/%d created=%d deleted=%d", currentLiveKeys, maxLiveKeys,
           createdCounter.sum(), deletedCounter.sum()));
+      
+      if (currentLiveKeys >= maxLiveKeys) {
+        sb.append(" [LIMIT_REACHED]");
+      }
       
       // Add rate information for each operation type
       for (Map.Entry<String, Timer> entry

@@ -26,6 +26,7 @@ import org.apache.hadoop.hdds.utils.BackgroundTaskQueue;
 import org.apache.hadoop.hdds.utils.BackgroundTaskResult;
 import org.apache.hadoop.hdds.utils.db.DBStore;
 import org.apache.hadoop.hdds.utils.db.KeyRange;
+import org.apache.hadoop.hdds.utils.db.managed.ManagedCompactRangeOptions;
 import org.apache.hadoop.ozone.om.OMMetadataManager;
 import org.rocksdb.TableProperties;
 import org.slf4j.Logger;
@@ -65,9 +66,11 @@ public abstract class AbstractCompactor implements Compactor {
 
   @Override
   public void compactRange(KeyRange range) {
-    try {
+    try (ManagedCompactRangeOptions options = new ManagedCompactRangeOptions()) {
       LOG.info("Compacting range {} for table {}", range, tableName);
-      dbStore.compactTable(tableName, range.getStartKey(), range.getEndKey());
+      options.setBottommostLevelCompaction(ManagedCompactRangeOptions.BottommostLevelCompaction.kForce);
+      options.setExclusiveManualCompaction(true);
+      dbStore.compactTable(tableName, range.getStartKey(), range.getEndKey(), options);
     } catch (Exception e) {
       LOG.error("Failed to compact range {} for table {}", range, tableName, e);
     }
@@ -123,7 +126,11 @@ public abstract class AbstractCompactor implements Compactor {
   }
 
   protected void addRangeCompactionTask(KeyRange range) {
+    LOG.info("Adding range compaction task for range {} in table {}, compactRangeQueue size: {}", 
+        range, tableName, compactRangeQueue.size());
     compactRangeQueue.add(new CompactionTask(range));
+    LOG.info("Added range compaction task for range {} in table {}, compactRangeQueue size: {}", 
+        range, tableName, compactRangeQueue.size());
   }
 
   private class CompactionTask implements BackgroundTask {
@@ -143,7 +150,7 @@ public abstract class AbstractCompactor implements Compactor {
     public BackgroundTaskResult call() throws Exception {
       LOG.debug("Running compaction for range {} in table {}", range, tableName);
 
-      dbStore.compactTable(tableName, range.getStartKey(), range.getEndKey());
+      compactRange(range);
       return () -> 1;
     }
   }

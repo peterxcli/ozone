@@ -81,7 +81,8 @@ public class RangeCompactionService extends BackgroundService {
   }
 
   @Override
-  public void start() {
+  public synchronized void start() {
+    super.start();
     scheduleCompactionChecks();
   }
 
