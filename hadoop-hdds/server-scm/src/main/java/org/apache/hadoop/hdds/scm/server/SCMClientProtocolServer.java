@@ -1511,6 +1511,66 @@ public class SCMClientProtocolServer implements
     }
   }
 
+  @Override
+  public List<HddsProtos.DatanodeDiskBalancerInfoProto> getDiskBalancerReport(
+      int count, int clientVersion) throws IOException {
+    return scm.getDiskBalancerManager().getDiskBalancerReport(count,
+        clientVersion);
+  }
+
+  @Override
+  public List<HddsProtos.DatanodeDiskBalancerInfoProto> getDiskBalancerStatus(
+      Optional<List<String>> hosts,
+      Optional<HddsProtos.DiskBalancerRunningStatus> status,
+      int clientVersion) throws IOException {
+    return scm.getDiskBalancerManager().getDiskBalancerStatus(hosts, status,
+        clientVersion);
+  }
+
+  @Override
+  public List<DatanodeAdminError> startDiskBalancer(Optional<Double> threshold,
+      Optional<Long> bandwidthInMB, Optional<Integer> parallelThread,
+      Optional<Boolean> stopAfterDiskEven, Optional<List<String>> hosts)
+      throws IOException {
+    try {
+      getScm().checkAdminAccess(getRemoteUser(), false);
+    } catch (IOException e) {
+      LOG.error("Authorization failed", e);
+      throw e;
+    }
+
+    return scm.getDiskBalancerManager()
+        .startDiskBalancer(threshold, bandwidthInMB, parallelThread, stopAfterDiskEven, hosts);
+  }
+
+  @Override
+  public List<DatanodeAdminError> stopDiskBalancer(Optional<List<String>> hosts)
+      throws IOException {
+    try {
+      getScm().checkAdminAccess(getRemoteUser(), false);
+    } catch (IOException e) {
+      LOG.error("Authorization failed", e);
+      throw e;
+    }
+    return scm.getDiskBalancerManager().stopDiskBalancer(hosts);
+  }
+
+  @Override
+  public List<DatanodeAdminError> updateDiskBalancerConfiguration(
+      Optional<Double> threshold, Optional<Long> bandwidthInMB,
+      Optional<Integer> parallelThread, Optional<Boolean> stopAfterDiskEven, Optional<List<String>> hosts)
+      throws IOException {
+    try {
+      getScm().checkAdminAccess(getRemoteUser(), false);
+    } catch (IOException e) {
+      LOG.error("Authorization failed", e);
+      throw e;
+    }
+
+    return scm.getDiskBalancerManager().updateDiskBalancerConfiguration(
+        threshold, bandwidthInMB, parallelThread, stopAfterDiskEven, hosts);
+  }
+
   /**
    * Queries a list of Node that match a set of statuses.
    *

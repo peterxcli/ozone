@@ -18,6 +18,7 @@
 package org.apache.hadoop.ozone.container.common.volume;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
@@ -32,6 +33,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.apache.hadoop.fs.StorageType;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.fs.SpaceUsageCheckFactory;
+import org.apache.hadoop.hdds.fs.SpaceUsageSource;
 import org.apache.hadoop.hdds.utils.HddsServerUtil;
 import org.apache.hadoop.hdfs.server.datanode.StorageLocation;
 import org.apache.hadoop.ozone.container.common.impl.StorageLocationReport;
@@ -466,5 +468,16 @@ public class MutableVolumeSet implements VolumeSet {
     } finally {
       this.readUnlock();
     }
+  }
+
+  public double getIdealUsage() {
+    long totalCapacity = 0L, totalFree = 0L;
+    for (StorageVolume volume: volumeMap.values()) {
+      SpaceUsageSource usage = volume.getCurrentUsage();
+      totalCapacity += usage.getCapacity();
+      totalFree += usage.getAvailable();
+    }
+    Preconditions.checkArgument(totalCapacity != 0);
+    return ((double) (totalCapacity - totalFree)) / totalCapacity;
   }
 }
