@@ -121,6 +121,8 @@ import org.apache.hadoop.hdds.scm.metadata.SCMMetadataStoreImpl;
 import org.apache.hadoop.hdds.scm.net.NetworkTopology;
 import org.apache.hadoop.hdds.scm.net.NetworkTopologyImpl;
 import org.apache.hadoop.hdds.scm.node.DeadNodeHandler;
+import org.apache.hadoop.hdds.scm.node.DiskBalancerManager;
+import org.apache.hadoop.hdds.scm.node.DiskBalancerReportHandler;
 import org.apache.hadoop.hdds.scm.node.HealthyReadOnlyNodeHandler;
 import org.apache.hadoop.hdds.scm.node.NewNodeHandler;
 import org.apache.hadoop.hdds.scm.node.NodeAddressUpdateHandler;
@@ -247,6 +249,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
   private FinalizationManager finalizationManager;
   private HDDSLayoutVersionManager scmLayoutVersionManager;
   private LeaseManager<Object> leaseManager;
+  private DiskBalancerManager diskBalancerManager;
 
   private SCMMetadataStore scmMetadataStore;
   private CertificateStore certificateStore;
@@ -477,7 +480,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
     StaleNodeHandler staleNodeHandler =
         new StaleNodeHandler(scmNodeManager, pipelineManager);
     DeadNodeHandler deadNodeHandler = new DeadNodeHandler(scmNodeManager,
-        pipelineManager, containerManager);
+        pipelineManager, containerManager, diskBalancerManager);
     StartDatanodeAdminHandler datanodeStartAdminHandler =
         new StartDatanodeAdminHandler(scmNodeManager, pipelineManager);
     ReadOnlyHealthyToHealthyNodeHandler readOnlyHealthyToHealthyNodeHandler =
@@ -497,6 +500,8 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
             scmNodeManager, containerManager, scmContext);
     PipelineActionHandler pipelineActionHandler =
         new PipelineActionHandler(pipelineManager, scmContext);
+    DiskBalancerReportHandler diskBalancerReportHandler =
+        new DiskBalancerReportHandler(diskBalancerManager);
 
     ReplicationManagerEventHandler replicationManagerEventHandler =
         new ReplicationManagerEventHandler(replicationManager, scmContext);
@@ -578,6 +583,8 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
     scmNodeManager.registerSendCommandNotify(
         SCMCommandProto.Type.deleteBlocksCommand,
         scmBlockManager.getDeletedBlockLog()::onSent);
+    eventQueue.addHandler(SCMEvents.DISK_BALANCER_REPORT,
+        diskBalancerReportHandler);
   }
 
   private void initializeCertificateClient() throws IOException {
@@ -846,6 +853,8 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
         .setSCMDBTransactionBuffer(scmHAManager.getDBTransactionBuffer())
         .setRatisServer(scmHAManager.getRatisServer())
         .build();
+    diskBalancerManager = new DiskBalancerManager(conf, eventQueue, scmContext,
+        scmNodeManager);
   }
 
   /**
@@ -1966,6 +1975,10 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
    */
   public SCMServiceManager getSCMServiceManager() {
     return serviceManager;
+  }
+
+  public DiskBalancerManager getDiskBalancerManager() {
+    return diskBalancerManager;
   }
 
   /**

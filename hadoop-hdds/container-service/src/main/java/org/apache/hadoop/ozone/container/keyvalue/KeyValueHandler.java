@@ -113,6 +113,7 @@ import org.apache.hadoop.ozone.container.common.report.IncrementalReportSender;
 import org.apache.hadoop.ozone.container.common.statemachine.DatanodeConfiguration;
 import org.apache.hadoop.ozone.container.common.transport.server.ratis.DispatcherContext;
 import org.apache.hadoop.ozone.container.common.utils.ContainerLogger;
+import org.apache.hadoop.ozone.container.common.utils.HddsVolumeUtil;
 import org.apache.hadoop.ozone.container.common.utils.StorageVolumeUtil;
 import org.apache.hadoop.ozone.container.common.volume.HddsVolume;
 import org.apache.hadoop.ozone.container.common.volume.VolumeChoosingPolicyFactory;
@@ -1306,6 +1307,38 @@ public class KeyValueHandler extends Handler {
     } finally {
       container.writeUnlock();
     }
+  }
+
+  @Override
+  public void copyContainer(final Container container, Path destinationPath)
+      throws IOException {
+    final KeyValueContainer kvc = (KeyValueContainer) container;
+    kvc.copyContainerData(destinationPath);
+  }
+
+  @Override
+  public Container importContainer(ContainerData originalContainerData,
+      final Path containerPath) throws IOException {
+    Preconditions.checkState(originalContainerData instanceof
+        KeyValueContainerData, "Should be KeyValueContainerData instance");
+
+    KeyValueContainerData containerData = new KeyValueContainerData(
+        (KeyValueContainerData) originalContainerData);
+
+    KeyValueContainer container = new KeyValueContainer(containerData,
+        conf);
+
+    HddsVolume volume = HddsVolumeUtil.matchHddsVolume(
+        StorageVolumeUtil.getHddsVolumesList(volumeSet.getVolumesList()),
+        containerPath.toString());
+    if (volume == null ||
+        !containerPath.startsWith(volume.getVolumeRootDir())) {
+      throw new IOException("ContainerPath " + containerPath
+          + " doesn't match volume " + volume);
+    }
+    container.populatePathFields(volume, containerPath);
+    container.importContainerData(containerPath);
+    return container;
   }
 
   @Override
