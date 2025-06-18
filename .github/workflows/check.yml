@@ -136,6 +136,8 @@ env:
   OZONE_IMAGE: ghcr.io/apache/ozone
   OZONE_RUNNER_IMAGE: ghcr.io/apache/ozone-runner
   OZONE_VOLUME_OWNER: 1000
+  GITHUB_ACTOR: ${{ github.actor }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   check:

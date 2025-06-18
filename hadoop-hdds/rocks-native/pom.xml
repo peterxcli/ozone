@@ -194,7 +194,7 @@
                 </goals>
                 <phase>generate-sources</phase>
                 <configuration>
-                  <url>https://github.com/facebook/rocksdb/archive/refs/tags/v${rocksdb.version}.tar.gz</url>
+                  <url>https://github.com/peterxcli/rocksdb/archive/refs/tags/v${rocksdb.version}.tar.gz</url>
                   <outputFileName>rocksdb-v${rocksdb.version}.tar.gz</outputFileName>
                   <outputDirectory>${project.build.directory}/rocksdb</outputDirectory>
                 </configuration>
@@ -255,6 +255,22 @@
                       <arg line="-j${system.numCores}" />
                       <arg line="tools_lib" />
                     </exec>
+                    <!-- <exec dir="${project.build.directory}/rocksdb/rocksdb-${rocksdb.version}" executable="make" failonerror="true">
+                      <arg line="PORTABLE=1" />
+                      <arg line="DEBUG_LEVEL=0" />
+                      <arg line="EXTRA_CXXFLAGS='-fPIC -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-error -Wno-unused-variable'" />
+                      <arg line="-j${system.numCores}" />
+                      <arg line="rocksdbjava" />
+                    </exec> -->
+                    <!-- Install the patched rocksdbjni to local Maven repository -->
+                    <!-- <exec executable="mvn" failonerror="true">
+                      <arg line="install:install-file" />
+                      <arg line="-Dfile=${project.build.directory}/rocksdb/rocksdb-${rocksdb.version}/java/target/rocksdbjni-${rocksdb.version}-${rocksdbOSName}.jar" />
+                      <arg line="-DgroupId=org.rocksdb" />
+                      <arg line="-DartifactId=rocksdbjni" />
+                      <arg line="-Dversion=${rocksdb.version}" />
+                      <arg line="-Dpackaging=jar" />
+                    </exec> -->
                   </target>
                 </configuration>
               </execution>
