@@ -73,7 +73,11 @@ import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
 import org.apache.hadoop.ozone.om.helpers.OmVolumeArgs;
 import org.apache.hadoop.ozone.om.helpers.SnapshotInfo;
+import org.apache.hadoop.ozone.om.request.snapshot.OMSnapshotCreateRequest;
 import org.apache.hadoop.ozone.om.snapshot.OmSnapshotUtils;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.CreateSnapshotRequest;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMRequest;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.Type;
 import org.apache.hadoop.util.Time;
 import org.apache.ozone.test.GenericTestUtils;
 import org.apache.ozone.test.GenericTestUtils.LogCapturer;
@@ -739,6 +743,43 @@ class TestOmSnapshotManager {
 
     assertThat(logCapturer.getOutput()).contains(
         "for snapshot " + first.getName() + " already exists.");
+  }
+
+  @Test
+  public void testSnapshotCreateRequestInPrepareState() throws Exception {
+    om.getPrepareState().finishPrepare(1L);
+    
+    // Create a snapshot request
+    String volumeName = "vol1";
+    String bucketName = "buck1";
+    String snapshotName = "snap1";
+    
+    CreateSnapshotRequest createSnapshotRequest = CreateSnapshotRequest.newBuilder()
+        .setVolumeName(volumeName)
+        .setBucketName(bucketName)
+        .setSnapshotName(snapshotName)
+        .build();
+    
+    OMRequest omRequest = OMRequest.newBuilder()
+        .setCreateSnapshotRequest(createSnapshotRequest)
+        .setCmdType(Type.CreateSnapshot)
+        .setClientId("test")
+        .build();
+    
+    OMSnapshotCreateRequest snapshotCreateRequest = new OMSnapshotCreateRequest(omRequest);
+
+    // The preExecute should throw an exception as the OM is in prepare state.
+    OMException exception = assertThrows(OMException.class, 
+        () -> snapshotCreateRequest.preExecute(om));
+    
+    assertEquals(OMException.ResultCodes.NOT_SUPPORTED_OPERATION_WHEN_PREPARED, 
+        exception.getResult());
+    
+    // Verify that the inFlightSnapshotCount is still 0
+    assertEquals(0, omSnapshotManager.getInFlightSnapshotCount());
+    
+    // Clean up - cancel prepare state
+    om.getPrepareState().cancelPrepare();
   }
 
   private SnapshotInfo createSnapshotInfo(String volumeName,

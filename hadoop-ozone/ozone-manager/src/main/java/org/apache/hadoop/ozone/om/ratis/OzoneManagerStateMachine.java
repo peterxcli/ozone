@@ -158,7 +158,20 @@ public class OzoneManagerStateMachine extends BaseStateMachine {
 
   @Override
   public void notifyLeaderReady() {
-    ozoneManager.getOmSnapshotManager().resetInFlightSnapshotCount();
+    try {
+      // The applyTransaction in OzoneManagerStateMachine processes 
+      // the calls in async manner and returns a CompletableFuture, 
+      // the transactions might not be yet fully processed by the OzoneManagerStateMachine 
+      // when Ratis notifies the leader ready.
+      // So we need to wait for all pending transactions to be flushed before resetting the inFlightSnapshotCount.
+      ozoneManagerDoubleBuffer.awaitFlush();
+    } catch (InterruptedException e) {
+      LOG.warn("Interrupted while waiting for pending transactions to flush during leader ready notification", e);
+      Thread.currentThread().interrupt();
+    } finally {
+      // Best effort
+      ozoneManager.getOmSnapshotManager().resetInFlightSnapshotCount();
+    }
   }
 
   @Override

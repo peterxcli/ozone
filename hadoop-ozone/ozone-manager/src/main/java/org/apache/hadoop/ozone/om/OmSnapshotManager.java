@@ -910,15 +910,7 @@ public final class OmSnapshotManager implements AutoCloseable {
   }
 
   public void decrementInFlightSnapshotCount() {
-    // TODO this is a work around for the accounting logic of `inFlightSnapshotCount`.
-    //    - It incorrectly assumes that LeaderReady means that there are no inflight snapshot requests.
-    //    We may consider fixing it by waiting all the pending requests in notifyLeaderReady().
-    //    - Also, it seems to have another bug that the PrepareState could disallow snapshot requests.
-    //    In such case, `inFlightSnapshotCount` won't be decremented.
-    int result = inFlightSnapshotCount.decrementAndGet();
-    if (result < 0) {
-      resetInFlightSnapshotCount();
-    }
+    inFlightSnapshotCount.decrementAndGet();
   }
 
   public void resetInFlightSnapshotCount() {

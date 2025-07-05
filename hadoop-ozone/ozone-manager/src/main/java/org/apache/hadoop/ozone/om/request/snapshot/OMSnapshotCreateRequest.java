@@ -60,6 +60,7 @@ import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.CreateS
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.CreateSnapshotResponse;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMRequest;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMResponse;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.Type;
 import org.apache.hadoop.ozone.security.acl.IAccessAuthorizer;
 import org.apache.hadoop.ozone.security.acl.OzoneObj;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -104,6 +105,15 @@ public class OMSnapshotCreateRequest extends OMClientRequest {
   @RequireSnapshotFeatureState(true)
   public OMRequest preExecute(OzoneManager ozoneManager) throws IOException {
     final OMRequest omRequest = super.preExecute(ozoneManager);
+    
+    // Check if OM is in PrepareState, otherwise, the prepare state check in 
+    // OzoneManagerRatisServer#submitRequest will reject the request.
+    // Cause the inFlightSnapshotCount is not decremented properly.
+    if (!ozoneManager.getPrepareState().requestAllowed(Type.CreateSnapshot)) {
+      throw new OMException("Cannot create snapshot when OM is in prepare state",
+          OMException.ResultCodes.NOT_SUPPORTED_OPERATION_WHEN_PREPARED);
+    }
+    
     // Verify name
     OmUtils.validateSnapshotName(snapshotName);
     // Updating the volumeName & bucketName in case the bucket is a linked bucket. We need to do this before a
