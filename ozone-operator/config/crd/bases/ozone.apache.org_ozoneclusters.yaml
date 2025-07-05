@@ -1,0 +1,584 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.9.2
+  creationTimestamp: null
+  name: ozoneclusters.ozone.apache.org
+spec:
+  group: ozone.apache.org
+  names:
+    kind: OzoneCluster
+    listKind: OzoneClusterList
+    plural: ozoneclusters
+    shortNames:
+    - oz
+    singular: ozonecluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Cluster phase
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: Cluster readiness
+      jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - description: Ozone version
+      jsonPath: .status.version
+      name: Version
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: OzoneCluster is the Schema for the ozoneclusters API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: OzoneClusterSpec defines the desired state of OzoneCluster
+            properties:
+              backup:
+                description: Backup defines backup configurations
+                properties:
+                  destination:
+                    description: Destination for backups (s3://bucket/path or pvc://claim-name/path)
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled determines if backup is enabled
+                    type: boolean
+                  retention:
+                    description: Retention policy
+                    properties:
+                      count:
+                        default: 10
+                        description: Count of backups to keep
+                        format: int32
+                        type: integer
+                      days:
+                        default: 7
+                        description: Days to keep backups
+                        format: int32
+                        type: integer
+                    type: object
+                  s3Config:
+                    description: S3Config for S3 backup destination
+                    properties:
+                      credentialsSecret:
+                        description: CredentialsSecret references AWS credentials
+                        properties:
+                          name:
+                            description: Name of the referent. More info...
+                            type: string
+                        type: object
+                      endpoint:
+                        description: Endpoint for S3-compatible storage
+                        type: string
+                      region:
+                        description: Region for S3
+                        type: string
+                      useSSL:
+                        default: true
+                        description: UseSSL for S3 connection
+                        type: boolean
+                    required:
+                    - credentialsSecret
+                    - endpoint
+                    type: object
+                  schedule:
+                    default: 0 2 * * *
+                    description: Schedule in cron format
+                    type: string
+                required:
+                - destination
+                type: object
+              configOverrides:
+                additionalProperties:
+                  type: string
+                description: ConfigOverrides allows overriding specific Ozone configurations
+                type: object
+              datanodes:
+                description: Datanodes defines the datanode configuration
+                properties:
+                  affinity:
+                    description: Affinity rules for pod placement
+                    type: object
+                  dataVolumes:
+                    description: DataVolumes defines the data storage volumes
+                    items:
+                      description: DataVolume defines a data storage volume
+                      properties:
+                        mountPath:
+                          description: MountPath for the volume
+                          type: string
+                        size:
+                          description: Size of the data volume
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          type: string
+                        storageClass:
+                          description: StorageClass for the data volume
+                          type: string
+                      required:
+                      - size
+                      type: object
+                    type: array
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector for pod placement
+                    type: object
+                  replicas:
+                    default: 3
+                    description: Replicas is the number of datanode instances
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    description: Resources defines resource requirements
+                    type: object
+                  tolerations:
+                    description: Tolerations for pod placement
+                    items:
+                      description: The pod this Toleration is attached to tolerates any
+                        taint that matches the triple <key,value,effect> using the matching
+                        operator <operator>.
+                      properties:
+                        effect:
+                          description: Effect indicates the taint effect to match...
+                          type: string
+                        key:
+                          description: Key is the taint key that the toleration applies
+                            to. Empty means match all taint keys...
+                          type: string
+                        operator:
+                          description: Operator represents a key's relationship to the
+                            value...
+                          type: string
+                        tolerationSeconds:
+                          description: TolerationSeconds represents the period of time...
+                          format: int64
+                          type: integer
+                        value:
+                          description: Value is the taint value the toleration matches
+                            to...
+                          type: string
+                      type: object
+                    type: array
+                required:
+                - dataVolumes
+                type: object
+              image:
+                description: Image is the container image to use
+                type: string
+              imagePullPolicy:
+                description: ImagePullPolicy for all containers
+                type: string
+              imagePullSecrets:
+                description: ImagePullSecrets for pulling images from private registries
+                items:
+                  description: LocalObjectReference contains enough information to let
+                    you locate the referenced object inside the same namespace.
+                  properties:
+                    name:
+                      description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        TODO: Add other useful fields. apiVersion, kind, uid?'
+                      type: string
+                  type: object
+                type: array
+              monitoring:
+                description: Monitoring defines monitoring configurations
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled determines if monitoring is enabled
+                    type: boolean
+                  grafanaDashboard:
+                    description: Grafana dashboard configuration
+                    properties:
+                      enabled:
+                        default: true
+                        description: Enabled determines if Grafana dashboards should
+                          be created
+                        type: boolean
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: Labels to add to dashboard ConfigMaps
+                        type: object
+                    type: object
+                  prometheusOperator:
+                    description: PrometheusOperator integration
+                    properties:
+                      interval:
+                        default: 30s
+                        description: Interval for scraping metrics
+                        type: string
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: Labels to add to ServiceMonitor
+                        type: object
+                      serviceMonitor:
+                        default: true
+                        description: ServiceMonitor creates ServiceMonitor resources
+                        type: boolean
+                    type: object
+                type: object
+              om:
+                description: OM defines the Ozone Manager configuration
+                properties:
+                  affinity:
+                    description: Affinity rules for pod placement
+                    type: object
+                  enableHA:
+                    default: true
+                    description: EnableHA enables high availability mode
+                    type: boolean
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector for pod placement
+                    type: object
+                  replicas:
+                    default: 3
+                    description: Replicas is the number of OM instances
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    description: Resources defines resource requirements
+                    type: object
+                  storageClass:
+                    description: StorageClass for metadata PVC
+                    type: string
+                  storageSize:
+                    default: 10Gi
+                    description: StorageSize for metadata
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    type: string
+                  tolerations:
+                    description: Tolerations for pod placement
+                    items:
+                      type: object
+                    type: array
+                type: object
+              recon:
+                description: Recon defines the Recon service configuration
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled determines if Recon should be deployed
+                    type: boolean
+                  resources:
+                    description: Resources defines resource requirements
+                    type: object
+                  storageClass:
+                    description: StorageClass for Recon PVC
+                    type: string
+                  storageSize:
+                    default: 20Gi
+                    description: StorageSize for Recon database
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    type: string
+                type: object
+              s3Gateway:
+                description: S3Gateway defines the S3 gateway configuration
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled determines if S3 gateway should be deployed
+                    type: boolean
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector for pod placement
+                    type: object
+                  replicas:
+                    default: 2
+                    description: Replicas is the number of S3 gateway instances
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    description: Resources defines resource requirements
+                    type: object
+                  serviceType:
+                    default: ClusterIP
+                    description: ServiceType for S3 gateway service
+                    type: string
+                type: object
+              scm:
+                description: SCM defines the Storage Container Manager configuration
+                properties:
+                  affinity:
+                    description: Affinity rules for pod placement
+                    type: object
+                  enableHA:
+                    default: true
+                    description: EnableHA enables high availability mode
+                    type: boolean
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: NodeSelector for pod placement
+                    type: object
+                  replicas:
+                    default: 3
+                    description: Replicas is the number of SCM instances
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  resources:
+                    description: Resources defines resource requirements
+                    type: object
+                  storageClass:
+                    description: StorageClass for metadata PVC
+                    type: string
+                  storageSize:
+                    default: 10Gi
+                    description: StorageSize for metadata
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    type: string
+                  tolerations:
+                    description: Tolerations for pod placement
+                    items:
+                      type: object
+                    type: array
+                type: object
+              security:
+                description: Security defines security configurations
+                properties:
+                  certificateSecret:
+                    description: CertificateSecret references a secret containing certificates
+                    properties:
+                      name:
+                        description: Name of the referent. More info...
+                        type: string
+                    type: object
+                  enabled:
+                    default: false
+                    description: Enabled determines if security features are enabled
+                    type: boolean
+                  kerberosEnabled:
+                    default: false
+                    description: KerberosEnabled enables Kerberos authentication
+                    type: boolean
+                  kerberosKeytabSecret:
+                    description: KerberosKeytabSecret references a secret containing
+                      Kerberos keytab
+                    properties:
+                      name:
+                        description: Name of the referent. More info...
+                        type: string
+                    type: object
+                  tlsEnabled:
+                    default: false
+                    description: TLSEnabled enables TLS encryption
+                    type: boolean
+                type: object
+              version:
+                description: Version is the Ozone version to deploy
+                type: string
+            required:
+            - datanodes
+            - om
+            - scm
+            - version
+            type: object
+          status:
+            description: OzoneClusterStatus defines the observed state of OzoneCluster
+            properties:
+              components:
+                description: Components status
+                properties:
+                  datanodes:
+                    description: ComponentStatus represents individual component status
+                    properties:
+                      currentVersion:
+                        type: string
+                      desiredReplicas:
+                        format: int32
+                        type: integer
+                      lastUpdated:
+                        format: date-time
+                        type: string
+                      ready:
+                        type: boolean
+                      readyReplicas:
+                        format: int32
+                        type: integer
+                      targetVersion:
+                        type: string
+                    type: object
+                  om:
+                    description: ComponentStatus represents individual component status
+                    properties:
+                      currentVersion:
+                        type: string
+                      desiredReplicas:
+                        format: int32
+                        type: integer
+                      lastUpdated:
+                        format: date-time
+                        type: string
+                      ready:
+                        type: boolean
+                      readyReplicas:
+                        format: int32
+                        type: integer
+                      targetVersion:
+                        type: string
+                    type: object
+                  recon:
+                    description: ComponentStatus represents individual component status
+                    properties:
+                      currentVersion:
+                        type: string
+                      desiredReplicas:
+                        format: int32
+                        type: integer
+                      lastUpdated:
+                        format: date-time
+                        type: string
+                      ready:
+                        type: boolean
+                      readyReplicas:
+                        format: int32
+                        type: integer
+                      targetVersion:
+                        type: string
+                    type: object
+                  s3Gateway:
+                    description: ComponentStatus represents individual component status
+                    properties:
+                      currentVersion:
+                        type: string
+                      desiredReplicas:
+                        format: int32
+                        type: integer
+                      lastUpdated:
+                        format: date-time
+                        type: string
+                      ready:
+                        type: boolean
+                      readyReplicas:
+                        format: int32
+                        type: integer
+                      targetVersion:
+                        type: string
+                    type: object
+                  scm:
+                    description: ComponentStatus represents individual component status
+                    properties:
+                      currentVersion:
+                        type: string
+                      desiredReplicas:
+                        format: int32
+                        type: integer
+                      lastUpdated:
+                        format: date-time
+                        type: string
+                      ready:
+                        type: boolean
+                      readyReplicas:
+                        format: int32
+                        type: integer
+                      targetVersion:
+                        type: string
+                    type: object
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource. --- This struct is intended for direct
+                    use as an array at the field path .status.conditions.  For example,
+                    type FooStatus struct{ // Represents the observations of a foo's
+                    current state. // Known .status.conditions.type are: \"Available\",
+                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
+                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
+                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
+                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
+                  properties:
+                    lastTransitionTime:
+                      description: lastTransitionTime is the last time the condition
+                        transitioned from one status to another...
+                      format: date-time
+                      type: string
+                    message:
+                      description: message is a human readable message indicating
+                        details about the transition...
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: observedGeneration represents the .metadata.generation
+                        that the condition was set based upon...
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: reason contains a programmatic identifier indicating
+                        the reason for the condition's last transition...
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase...
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastBackup:
+                description: LastBackup timestamp
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the last observed generation
+                format: int64
+                type: integer
+              phase:
+                description: Phase represents the current phase of cluster
+                type: string
+              ready:
+                description: Ready indicates if the cluster is ready
+                type: boolean
+              version:
+                description: Version is the current running version
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

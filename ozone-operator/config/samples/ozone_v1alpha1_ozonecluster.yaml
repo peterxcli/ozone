@@ -1,0 +1,129 @@
+apiVersion: ozone.apache.org/v1alpha1
+kind: OzoneCluster
+metadata:
+  name: ozone-sample
+spec:
+  # Ozone version to deploy
+  version: "1.4.0"
+  
+  # Storage Container Manager configuration
+  scm:
+    replicas: 3
+    enableHA: true
+    storageSize: 10Gi
+    resources:
+      requests:
+        cpu: 2
+        memory: 8Gi
+      limits:
+        cpu: 4
+        memory: 16Gi
+    
+  # Ozone Manager configuration
+  om:
+    replicas: 3
+    enableHA: true
+    storageSize: 10Gi
+    resources:
+      requests:
+        cpu: 2
+        memory: 8Gi
+      limits:
+        cpu: 4
+        memory: 16Gi
+  
+  # Datanode configuration
+  datanodes:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 1
+        memory: 4Gi
+      limits:
+        cpu: 2
+        memory: 8Gi
+    dataVolumes:
+    - size: 100Gi
+      # storageClass: fast-ssd  # Optional: specify storage class
+    - size: 100Gi
+      # storageClass: fast-ssd
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: component
+                operator: In
+                values:
+                - datanode
+            topologyKey: kubernetes.io/hostname
+  
+  # S3 Gateway configuration (optional)
+  s3Gateway:
+    enabled: true
+    replicas: 2
+    serviceType: LoadBalancer  # or ClusterIP, NodePort
+    resources:
+      requests:
+        cpu: 1
+        memory: 2Gi
+      limits:
+        cpu: 2
+        memory: 4Gi
+  
+  # Recon service configuration (optional)
+  recon:
+    enabled: true
+    storageSize: 20Gi
+    resources:
+      requests:
+        cpu: 1
+        memory: 4Gi
+      limits:
+        cpu: 2
+        memory: 8Gi
+  
+  # Security configuration (optional)
+  # security:
+  #   enabled: true
+  #   tlsEnabled: true
+  #   certificateSecret:
+  #     name: ozone-tls-certs
+  #   kerberosEnabled: false
+  #   kerberosKeytabSecret:
+  #     name: ozone-keytab
+  
+  # Monitoring configuration (optional)
+  monitoring:
+    enabled: true
+    prometheusOperator:
+      serviceMonitor: true
+      interval: 30s
+      labels:
+        prometheus: kube-prometheus  # Match your Prometheus operator selector
+    grafanaDashboard:
+      enabled: true
+      labels:
+        grafana_dashboard: "1"  # Match your Grafana operator selector
+  
+  # Backup configuration (optional)
+  # backup:
+  #   enabled: true
+  #   schedule: "0 2 * * *"  # Daily at 2 AM
+  #   destination: s3://my-backup-bucket/ozone-backups
+  #   retention:
+  #     days: 7
+  #     count: 10
+  #   s3Config:
+  #     endpoint: s3.amazonaws.com
+  #     region: us-east-1
+  #     credentialsSecret:
+  #       name: s3-backup-credentials
+  #     useSSL: true
+  
+  # Custom Ozone configuration overrides (optional)
+  # configOverrides:
+  #   ozone.scm.container.size: "10GB"
+  #   ozone.scm.pipeline.per.datanode: "3"
