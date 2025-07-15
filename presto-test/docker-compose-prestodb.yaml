@@ -1,0 +1,33 @@
+version: '3'
+
+services:
+  presto-coordinator:
+    image: prestodb/presto:0.287
+    container_name: presto-coordinator
+    ports:
+      - 8081:8080
+    environment:
+      - PRESTO_NODE_TYPE=coordinator
+    volumes:
+      - ./prestodb-config:/opt/presto-server/etc
+
+  presto-worker:
+    image: prestodb/presto:0.287
+    container_name: presto-worker
+    depends_on:
+      - presto-coordinator
+    environment:
+      - PRESTO_NODE_TYPE=worker
+      - DISCOVERY_URI=http://presto-coordinator:8080
+    volumes:
+      - ./prestodb-config:/opt/presto-server/etc
+
+  hive-metastore:
+    image: apache/hive:3.1.3
+    container_name: hive-metastore
+    ports:
+      - 9083:9083
+    environment:
+      - SERVICE_NAME=metastore
+      - DB_DRIVER=derby
+    command: ["bin/schematool", "-dbType", "derby", "-initSchema", "&&", "bin/hive", "--service", "metastore"]

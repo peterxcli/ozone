@@ -1,0 +1,10 @@
+services:
+  trino:
+    image: trinodb/trino:453
+    hostname: trino
+    ports:
+      - 8080:8080
+    volumes:
+      - ./trino-config:/etc/trino
+    environment:
+      - TRINO_HISTORY_FILE=/var/lib/trino/.trino_history

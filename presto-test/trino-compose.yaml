@@ -1,0 +1,20 @@
+version: '3'
+
+services:
+  trino:
+    image: trinodb/trino:453
+    hostname: trino
+    network_mode: host
+    volumes:
+      - ./trino-config:/etc/trino
+    environment:
+      - TRINO_HISTORY_FILE=/var/lib/trino/.trino_history
+
+  hive-metastore:
+    image: apache/hive:4.0.0
+    hostname: hive-metastore
+    network_mode: host
+    environment:
+      - SERVICE_NAME=metastore
+      - DB_DRIVER=derby
+    command: ["bin/schematool", "-dbType", "derby", "-initSchema"]

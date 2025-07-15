@@ -1,0 +1,85 @@
+version: '3'
+
+services:
+  scm:
+    image: apache/ozone:1.4.0
+    hostname: scm
+    ports:
+      - 9876:9876
+      - 9860:9860
+    environment:
+      ENSURE_SCM_INITIALIZED: /data/metadata/scm/current/VERSION
+      OZONE-SITE.XML_hdds.scm.safemode.min.datanode: 1
+      OZONE-SITE.XML_ozone.scm.names: scm
+      OZONE-SITE.XML_ozone.scm.datanode.id.dir: /data/metadata
+    volumes:
+      - scm-data:/data
+    command: ["ozone", "scm"]
+
+  om:
+    image: apache/ozone:1.4.0
+    hostname: om
+    depends_on:
+      - scm
+    ports:
+      - 9874:9874
+      - 9862:9862
+    environment:
+      ENSURE_OM_INITIALIZED: /data/metadata/om/current/VERSION
+      OZONE-SITE.XML_ozone.om.address: om
+      OZONE-SITE.XML_ozone.om.http-address: om:9874
+      OZONE-SITE.XML_ozone.scm.http-address: scm:9876
+      OZONE-SITE.XML_ozone.scm.client.address: scm
+      OZONE-SITE.XML_ozone.scm.names: scm
+      OZONE-SITE.XML_ozone.metadata.dirs: /data/metadata
+    volumes:
+      - om-data:/data
+    command: ["ozone", "om"]
+
+  datanode:
+    image: apache/ozone:1.4.0
+    depends_on:
+      - scm
+      - om
+    ports:
+      - 19864
+      - 9882
+    environment:
+      OZONE-SITE.XML_ozone.scm.names: scm
+      OZONE-SITE.XML_ozone.scm.datanode.id.dir: /data/metadata
+      OZONE-SITE.XML_hdds.datanode.dir: /data/hdds
+      OZONE-SITE.XML_hdds.datanode.volume.min.free.space: 100MB
+      OZONE-SITE.XML_ozone.metadata.dirs: /data/metadata
+    volumes:
+      - datanode-data:/data
+    command: ["ozone", "datanode"]
+
+  s3g:
+    image: apache/ozone:1.4.0
+    hostname: s3g
+    depends_on:
+      - om
+      - scm
+    ports:
+      - 9878:9878
+    environment:
+      OZONE-SITE.XML_ozone.om.address: om
+      OZONE-SITE.XML_ozone.scm.names: scm
+      OZONE-SITE.XML_ozone.scm.client.address: scm
+      OZONE-SITE.XML_ozone.s3g.domain.name: s3g
+    command: ["ozone", "s3g"]
+
+  presto:
+    image: prestodb/presto:0.287
+    hostname: presto
+    depends_on:
+      - s3g
+    ports:
+      - 8080:8080
+    volumes:
+      - ./presto-config:/opt/presto-server/etc
+
+volumes:
+  scm-data:
+  om-data:
+  datanode-data:
