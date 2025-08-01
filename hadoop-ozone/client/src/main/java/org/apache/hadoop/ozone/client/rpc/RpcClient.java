@@ -17,9 +17,20 @@
 
 package org.apache.hadoop.ozone.client.rpc;
 
+import static com.google.common.base.Throwables.throwIfInstanceOf;
+import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.hadoop.ozone.OzoneAcl.LINK_BUCKET_DEFAULT_ACL;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_CACHE_VOLUME_BUCKET_ENABLE;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_CACHE_VOLUME_BUCKET_ENABLE_DEFAULT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_CACHE_VOLUME_BUCKET_MAXIMUM_SIZE;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_CACHE_VOLUME_BUCKET_MAXIMUM_SIZE_DEFAULT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_EXPIRES_AFTER_WRITE_SECONDS;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_EXPIRES_AFTER_WRITE_SECONDS_DEFAULT;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_KEY_PROVIDER_CACHE_EXPIRY;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_KEY_PROVIDER_CACHE_EXPIRY_DEFAULT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_REFRESH_AFTER_WRITE_SECONDS;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_REFRESH_AFTER_WRITE_SECONDS_DEFAULT;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_REQUIRED_OM_VERSION_MIN_KEY;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_SERVER_DEFAULTS_VALIDITY_PERIOD_MS;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_CLIENT_SERVER_DEFAULTS_VALIDITY_PERIOD_MS_DEFAULT;
@@ -27,14 +38,18 @@ import static org.apache.hadoop.ozone.OzoneConsts.ETAG;
 import static org.apache.hadoop.ozone.OzoneConsts.MAXIMUM_NUMBER_OF_PARTS_PER_UPLOAD;
 import static org.apache.hadoop.ozone.OzoneConsts.OLD_QUOTA_DEFAULT;
 import static org.apache.hadoop.ozone.OzoneConsts.OZONE_MAXIMUM_ACCESS_ID_LENGTH;
+import static org.apache.hadoop.ozone.OzoneConsts.OZONE_URI_DELIMITER;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import jakarta.annotation.Nonnull;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -219,6 +234,10 @@ public class RpcClient implements ClientProtocol {
   private final ContainerClientMetrics clientMetrics;
   private final MemoizedSupplier<ExecutorService> writeExecutor;
   private final AtomicBoolean isS3GRequest = new AtomicBoolean(false);
+  private final boolean volumeBucketCacheEnable;
+  private LoadingCache<String, OmVolumeArgs> volumeCache;
+  private LoadingCache<String, OmBucketInfo> bucketCache;
+  private ExecutorService cacheExecutor;
   private volatile OzoneFsServerDefaults serverDefaults;
   private volatile long serverDefaultsLastUpdate;
   private final long serverDefaultsValidityPeriod;
@@ -322,6 +341,37 @@ public class RpcClient implements ClientProtocol {
     this.blockInputStreamFactory = BlockInputStreamFactoryImpl
         .getInstance(byteBufferPool, ecReconstructExecutor);
     this.clientMetrics = ContainerClientMetrics.acquire();
+    this.volumeBucketCacheEnable = conf.getBoolean(OZONE_CLIENT_CACHE_VOLUME_BUCKET_ENABLE,
+        OZONE_CLIENT_CACHE_VOLUME_BUCKET_ENABLE_DEFAULT);
+
+    if (volumeBucketCacheEnable) {
+      int expiresAfterWriteSeconds = conf.getInt(OZONE_CLIENT_EXPIRES_AFTER_WRITE_SECONDS,
+          OZONE_CLIENT_EXPIRES_AFTER_WRITE_SECONDS_DEFAULT);
+      int refreshSeconds = conf.getInt(OZONE_CLIENT_REFRESH_AFTER_WRITE_SECONDS,
+          OZONE_CLIENT_REFRESH_AFTER_WRITE_SECONDS_DEFAULT);
+      int maximumSize = conf.getInt(OZONE_CLIENT_CACHE_VOLUME_BUCKET_MAXIMUM_SIZE,
+          OZONE_CLIENT_CACHE_VOLUME_BUCKET_MAXIMUM_SIZE_DEFAULT);
+
+      cacheExecutor = newDirectExecutorService();
+      volumeCache = newCacheBuilder(expiresAfterWriteSeconds, refreshSeconds, maximumSize)
+          .build(CacheLoader.asyncReloading(new CacheLoader<String, OmVolumeArgs>() {
+            @Nonnull
+            @Override
+            public OmVolumeArgs load(@Nonnull String volumeCacheKey) throws Exception {
+              return getOmVolumeArgs(volumeCacheKey);
+            }
+          }, cacheExecutor));
+
+      bucketCache = newCacheBuilder(expiresAfterWriteSeconds, refreshSeconds, maximumSize)
+          .build(CacheLoader.asyncReloading(new CacheLoader<String, OmBucketInfo>() {
+            @Nonnull
+            @Override
+            public OmBucketInfo load(@Nonnull String bucketCacheKey) throws Exception {
+              String[] volumeBucket = bucketCacheKey.split(OZONE_URI_DELIMITER);
+              return getBucketInfo(volumeBucket[0], volumeBucket[1]);
+            }
+          }, cacheExecutor));
+    }
 
     this.serverDefaultsValidityPeriod = conf.getTimeDuration(
         OZONE_CLIENT_SERVER_DEFAULTS_VALIDITY_PERIOD_MS,
@@ -462,6 +512,7 @@ public class RpcClient implements ClientProtocol {
               + "and space quota set to {} bytes, counts quota set" +
               " to {}", volumeName, owner, quotaInBytes, quotaInNamespace);
     }
+    invalidate(volumeCache, volumeName);
     ozoneManagerClient.createVolume(builder.build());
   }
 
@@ -470,6 +521,7 @@ public class RpcClient implements ClientProtocol {
       throws IOException {
     verifyVolumeName(volumeName);
     Preconditions.checkNotNull(owner);
+    invalidate(volumeCache, volumeName);
     return ozoneManagerClient.setOwner(volumeName, owner);
   }
 
@@ -481,12 +533,13 @@ public class RpcClient implements ClientProtocol {
     verifySpaceQuota(quotaInBytes);
     // If the volume is old, we need to remind the user on the client side
     // that it is not recommended to enable quota.
-    OmVolumeArgs omVolumeArgs = ozoneManagerClient.getVolumeInfo(volumeName);
+    OmVolumeArgs omVolumeArgs = get(volumeCache, volumeName);
     if (omVolumeArgs.getQuotaInNamespace() == OLD_QUOTA_DEFAULT) {
       LOG.warn("Volume {} is created before version 1.1.0, usedNamespace " +
           "may be inaccurate and it is not recommended to enable quota.",
           volumeName);
     }
+    invalidate(volumeCache, volumeName);
     ozoneManagerClient.setQuota(volumeName, quotaInNamespace, quotaInBytes);
   }
 
@@ -494,7 +547,7 @@ public class RpcClient implements ClientProtocol {
   public OzoneVolume getVolumeDetails(String volumeName)
       throws IOException {
     verifyVolumeName(volumeName);
-    OmVolumeArgs volume = ozoneManagerClient.getVolumeInfo(volumeName);
+    OmVolumeArgs volume = get(volumeCache, volumeName);
     return buildOzoneVolume(volume);
   }
 
@@ -545,6 +598,7 @@ public class RpcClient implements ClientProtocol {
   @Override
   public void deleteVolume(String volumeName) throws IOException {
     verifyVolumeName(volumeName);
+    invalidate(volumeCache, volumeName);
     ozoneManagerClient.deleteVolume(volumeName);
   }
 
@@ -1180,6 +1234,7 @@ public class RpcClient implements ClientProtocol {
     builder.setVolumeName(volumeName)
         .setBucketName(bucketName)
         .setIsVersionEnabled(versioning);
+    invalidate(bucketCache, getBucketCacheKey(volumeName, bucketName));
     ozoneManagerClient.setBucketProperty(builder.build());
   }
 
@@ -1194,6 +1249,7 @@ public class RpcClient implements ClientProtocol {
     builder.setVolumeName(volumeName)
         .setBucketName(bucketName)
         .setStorageType(storageType);
+    invalidate(bucketCache, getBucketCacheKey(volumeName, bucketName));
     ozoneManagerClient.setBucketProperty(builder.build());
   }
 
@@ -1211,14 +1267,15 @@ public class RpcClient implements ClientProtocol {
         .setQuotaInNamespace(quotaInNamespace);
     // If the bucket is old, we need to remind the user on the client side
     // that it is not recommended to enable quota.
-    OmBucketInfo omBucketInfo = ozoneManagerClient.getBucketInfo(
-        volumeName, bucketName);
+    OmBucketInfo omBucketInfo = get(bucketCache,
+        getBucketCacheKey(volumeName, bucketName));
     if (omBucketInfo.getQuotaInNamespace() == OLD_QUOTA_DEFAULT ||
         omBucketInfo.getUsedBytes() == OLD_QUOTA_DEFAULT) {
       LOG.warn("Bucket {} is created before version 1.1.0, usedBytes or " +
           "usedNamespace may be inaccurate and it is not recommended to " +
           "enable quota.", bucketName);
     }
+    invalidate(bucketCache, getBucketCacheKey(volumeName, bucketName));
     ozoneManagerClient.setBucketProperty(builder.build());
 
   }
@@ -1260,6 +1317,7 @@ public class RpcClient implements ClientProtocol {
         .setBucketName(bucketName)
         .setDefaultReplicationConfig(
             new DefaultReplicationConfig(replicationConfig));
+    invalidate(bucketCache, getBucketCacheKey(volumeName, bucketName));
     ozoneManagerClient.setBucketProperty(builder.build());
   }
 
@@ -1268,6 +1326,7 @@ public class RpcClient implements ClientProtocol {
       String volumeName, String bucketName) throws IOException {
     verifyVolumeName(volumeName);
     verifyBucketName(bucketName);
+    invalidate(bucketCache, getBucketCacheKey(volumeName, bucketName));
     ozoneManagerClient.deleteBucket(volumeName, bucketName);
   }
 
@@ -1283,7 +1342,7 @@ public class RpcClient implements ClientProtocol {
     verifyVolumeName(volumeName);
     verifyBucketName(bucketName);
     OmBucketInfo bucketInfo =
-        ozoneManagerClient.getBucketInfo(volumeName, bucketName);
+        get(bucketCache, getBucketCacheKey(volumeName, bucketName));
     return OzoneBucket.newBuilder(conf, this)
         .setVolumeName(bucketInfo.getVolumeName())
         .setName(bucketInfo.getBucketName())
@@ -2786,8 +2845,54 @@ public class RpcClient implements ClientProtocol {
   private static ExecutorService createThreadPoolExecutor(
        int corePoolSize, int maximumPoolSize, String threadNameFormat) {
     return new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
-            60, TimeUnit.SECONDS, new SynchronousQueue<>(),
+            60, SECONDS, new SynchronousQueue<>(),
                new ThreadFactoryBuilder().setNameFormat(threadNameFormat).setDaemon(true).build(),
                new ThreadPoolExecutor.CallerRunsPolicy());
+  }
+
+  private OmVolumeArgs getOmVolumeArgs(String volumeName)
+      throws IOException {
+    return ozoneManagerClient.getVolumeInfo(volumeName);
+  }
+
+  private OmBucketInfo getBucketInfo(
+      String volumeName, String bucketName) throws IOException {
+    return ozoneManagerClient.getBucketInfo(volumeName, bucketName);
+  }
+
+  private String getBucketCacheKey(String volumeName, String bucketName) {
+    return volumeName + OZONE_URI_DELIMITER + bucketName;
+  }
+
+  private CacheBuilder<Object, Object> newCacheBuilder(
+      long expiresAfterWriteSeconds, long refreshSeconds, long maximumSize) {
+    return CacheBuilder.newBuilder()
+        .expireAfterWrite(expiresAfterWriteSeconds, SECONDS)
+        .refreshAfterWrite(refreshSeconds, SECONDS)
+        .maximumSize(maximumSize);
+  }
+
+  private <K, V> V get(LoadingCache<K, V> cache, K key) throws IOException {
+    if (volumeBucketCacheEnable) {
+      try {
+        return cache.getUnchecked(key);
+      } catch (UncheckedExecutionException e) {
+        throwIfInstanceOf(e.getCause(), UncheckedExecutionException.class);
+        throw e;
+      }
+    } else {
+      String[] volumeOrBucket = ((String) key).split(OZONE_URI_DELIMITER);
+      if (volumeOrBucket.length == 1) {
+        return (V) getOmVolumeArgs(volumeOrBucket[0]);
+      } else {
+        return (V) getBucketInfo(volumeOrBucket[0], volumeOrBucket[1]);
+      }
+    }
+  }
+
+  private <K, V> void invalidate(LoadingCache<K, V> cache, K key) {
+    if (volumeBucketCacheEnable) {
+      cache.invalidate(key);
+    }
   }
 }
