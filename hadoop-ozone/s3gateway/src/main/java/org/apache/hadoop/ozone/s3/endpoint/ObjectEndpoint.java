@@ -841,7 +841,7 @@ public class ObjectEndpoint extends EndpointBase {
       SelectObjectContentRequest request = 
           SelectObjectContentRequest.parseFrom(requestBody);
 
-      SelectProcessor processor = new SelectProcessor(getClient(), bucket, keyPath);
+      SelectProcessor processor = new SelectProcessor(bucket, keyPath);
 
       StreamingOutput streamingOutput = output -> {
         try {

@@ -32,7 +32,6 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.hadoop.ozone.client.OzoneBucket;
-import org.apache.hadoop.ozone.client.OzoneClient;
 import org.apache.hadoop.ozone.client.io.OzoneInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,12 +42,10 @@ import org.slf4j.LoggerFactory;
 public class SelectProcessor {
   private static final Logger LOG = LoggerFactory.getLogger(SelectProcessor.class);
   
-  private final OzoneClient client;
   private final OzoneBucket bucket;
   private final String keyPath;
 
-  public SelectProcessor(OzoneClient client, OzoneBucket bucket, String keyPath) {
-    this.client = client;
+  public SelectProcessor(OzoneBucket bucket, String keyPath) {
     this.bucket = bucket;
     this.keyPath = keyPath;
   }
@@ -181,24 +178,25 @@ public class SelectProcessor {
         jsonOutput.getRecordDelimiter() : "\n";
     
     for (int row = 0; row < root.getRowCount(); row++) {
-      StringBuilder jsonBuilder = new StringBuilder("{");
+      StringBuilder jsonBuilder = new StringBuilder();
+      jsonBuilder.append('{');
       for (int col = 0; col < root.getFieldVectors().size(); col++) {
         if (col > 0) {
-          jsonBuilder.append(",");
+          jsonBuilder.append(',');
         }
         String fieldName = root.getSchema().getFields().get(col).getName();
         Object value = root.getFieldVectors().get(col).getObject(row);
         
-        jsonBuilder.append("\"").append(fieldName).append("\":");
+        jsonBuilder.append('"').append(fieldName).append('"').append(':');
         if (value == null) {
           jsonBuilder.append("null");
         } else if (value instanceof String) {
-          jsonBuilder.append("\"").append(value).append("\"");
+          jsonBuilder.append('"').append(value).append('"');
         } else {
           jsonBuilder.append(value);
         }
       }
-      jsonBuilder.append("}").append(recordDelimiter);
+      jsonBuilder.append('}').append(recordDelimiter);
       output.write(jsonBuilder.toString().getBytes());
     }
   }
