@@ -20,7 +20,7 @@ package org.apache.hadoop.ozone.s3.endpoint;
 import static javax.ws.rs.core.HttpHeaders.CONTENT_LENGTH;
 import static javax.ws.rs.core.HttpHeaders.ETAG;
 import static javax.ws.rs.core.HttpHeaders.LAST_MODIFIED;
-import static org.apache.hadoop.hdds.protocol.proto.HddsProtos.ReplicationType.EC;
+import static org.apache.hadoop.hdds.protocol.proto.HddsProtos.ReplicationType;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_CHUNK_SIZE_DEFAULT;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_CHUNK_SIZE_KEY;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_CONTAINER_RATIS_DATASTREAM_ENABLED;
@@ -103,6 +103,7 @@ import javax.ws.rs.core.Response.ResponseBuilder;
 import javax.ws.rs.core.Response.Status;
 import javax.ws.rs.core.StreamingOutput;
 import javax.xml.bind.DatatypeConverter;
+import javax.xml.bind.JAXBException;
 import net.jcip.annotations.Immutable;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -134,6 +135,8 @@ import org.apache.hadoop.ozone.s3.UnsignedChunksInputStream;
 import org.apache.hadoop.ozone.s3.endpoint.S3Tagging.Tag;
 import org.apache.hadoop.ozone.s3.exception.OS3Exception;
 import org.apache.hadoop.ozone.s3.exception.S3ErrorTable;
+import org.apache.hadoop.ozone.s3.select.SelectObjectContentRequest;
+import org.apache.hadoop.ozone.s3.select.SelectProcessor;
 import org.apache.hadoop.ozone.s3.util.RFC1123Util;
 import org.apache.hadoop.ozone.s3.util.RangeHeader;
 import org.apache.hadoop.ozone.s3.util.RangeHeaderParserUtil;
@@ -272,7 +275,7 @@ public class ObjectEndpoint extends EndpointBase {
 
       boolean enableEC = false;
       if ((replicationConfig != null &&
-          replicationConfig.getReplicationType() == EC) ||
+          replicationConfig.getReplicationType() == ReplicationType.EC) ||
           bucket.getReplicationConfig() instanceof ECReplicationConfig) {
         enableEC = true;
       }
@@ -812,6 +815,57 @@ public class ObjectEndpoint extends EndpointBase {
   }
 
   /**
+   * S3 Select endpoint to query object content.
+   */
+  @POST
+  @Produces(MediaType.APPLICATION_OCTET_STREAM)
+  @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+  public Response selectObjectContent(
+      @PathParam("bucket") String bucketName,
+      @PathParam("path") String keyPath,
+      @QueryParam("select") String select,
+      @QueryParam("select-type") String selectType,
+      InputStream requestBody) throws OS3Exception, IOException {
+
+    // Only process if this is a select request
+    if (select == null || !"2".equals(selectType)) {
+      return null;
+    }
+
+    long startNanos = Time.monotonicNowNanos();
+
+    OzoneVolume volume = getVolume();
+    OzoneBucket bucket = getBucket(volume, bucketName);
+
+    try {
+      SelectObjectContentRequest request = 
+          SelectObjectContentRequest.parseFrom(requestBody);
+
+      SelectProcessor processor = new SelectProcessor(getClient(), bucket, keyPath);
+
+      StreamingOutput streamingOutput = output -> {
+        try {
+          processor.processSelect(request, output);
+        } catch (Exception e) {
+          LOG.error("Error processing S3 Select request", e);
+          throw new IOException("Error processing select request", e);
+        }
+      };
+
+      getMetrics().updateGetKeySuccessStats(Time.monotonicNowNanos() - startNanos);
+      
+      return Response.ok(streamingOutput)
+          .type(MediaType.APPLICATION_OCTET_STREAM)
+          .build();
+    } catch (JAXBException e) {
+      throw newError(INVALID_REQUEST, "Invalid select request format", e);
+    } catch (Exception e) {
+      LOG.error("Error in S3 Select", e);
+      throw newError(S3ErrorTable.INTERNAL_ERROR, "Error processing select", e);
+    }
+  }
+
+  /**
    * Initialize MultiPartUpload request.
    * <p>
    * Note: the specific content type is set by the HeaderPreprocessor.
@@ -984,7 +1038,7 @@ public class ObjectEndpoint extends EndpointBase {
 
       boolean enableEC = false;
       if ((replicationConfig != null &&
-          replicationConfig.getReplicationType()  == EC) ||
+          replicationConfig.getReplicationType()  == ReplicationType.EC) ||
           ozoneBucket.getReplicationConfig() instanceof ECReplicationConfig) {
         enableEC = true;
       }
@@ -1220,7 +1274,7 @@ public class ObjectEndpoint extends EndpointBase {
       throws IOException {
     long copyLength;
     if (datastreamEnabled && !(replication != null &&
-        replication.getReplicationType() == EC) &&
+        replication.getReplicationType() == ReplicationType.EC) &&
         srcKeyLen > datastreamMinLength) {
       perf.appendStreamMode();
       copyLength = ObjectEndpointStreaming
