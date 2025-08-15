@@ -1,10 +1,12 @@
 ---
-title: 命令行接口
-weight: 4
+title: CSI 协议
+weight: 3
 menu:
    main:
-      parent: "客户端接口"
+      parent: "编程接口"
+summary: Ozone 支持 容器存储接口 (CSI) 协议。你可以通过 Ozone CSI 挂载 Ozone 桶的方式使用 Ozone。
 ---
+
 <!---
   Licensed to the Apache Software Foundation (ASF) under one or more
   contributor license agreements.  See the NOTICE file distributed with
@@ -22,290 +24,69 @@ menu:
   limitations under the License.
 -->
 
+容器存储接口 `Container Storage Interface` (CSI) 使存储供应商（SP）能够一次性开发一个插件，并让它跨多个容器编排工作,
+就像 Kubernetes 或者 YARN。
 
-Ozone shell 是从命令行与 Ozone 交互的主要接口。在后台，它调用 [Java API]({{< ref "interface/JavaApi.md">}}).
+获取更多 CSI 的信息，可以参考[SCI spec](https://github.com/container-storage-interface/spec/blob/master/spec.md)
 
-有些功能只能通过使用 `ozone sh` 命令才能访问。例如：
+CSI 定义了一个简单的，包含3个接口（Identity， Controller， Node）的 GRPC 接口，它定义了容器编排器如何请求创建新的存储空间或挂载新创建的存储，
+但没有定义如何挂载存储。
 
-1. 创建带有配额的卷
-2. 管理内部 ACL
-3. 创建带有加密的键的桶
+![CSI](CSI.png)
 
-所有这些命令都是一次性的管理任务。应用程序也可以使用其他接口，如 Hadoop 兼容文件系统（o3fs 或 ofs）或 S3 接口来实现相同功能而无需使用 Ozone 命令行接口。
+默认情况下，Ozone CSI 服务使用 S3 FUSE 驱动程序（[mountpoint-s3](https://github.com/awslabs/mountpoint-s3)）挂载 Ozone 桶。
+其他挂载方式（如专用 NFS 服务或本机FUSE驱动程序）的实现正在进行中。
 
 
-Ozone shell 的帮助菜单可以在 _对象_ 级别 或者 _动作_ 级别被调出.
 
-示例命令:
+Ozone CSI 是 CSI 的一种实现，它可以将 Ozone 用作容器的存储卷。 
+
+## 入门
+
+首先，我们需要一个带有 s3gateway 的 Ozone 集群，并且它的 OM 和 s3gateway 的端口都可以对 CSI pod 可见，
+因为 CSIServer 将会访问 OM 来创建或者删除桶，同时 CSIServer 通过 mountpoint-s3 创建一个可以访问 s3g 的挂载点来发布卷。 
+
+如果你没有一个运行在 Kubernetes 上的 Ozone 集群，你可以参考[Kubernetes]({{< ref "start/Kubernetes.zh.md" >}}) 来创建一个。
+使用来自 `kubernetes/examples/ozone`的资源，你可以找到所有需要的 Kubernetes 资源来和指定的 CSI 运行在一起
+(参考 `kubernetes/examples/ozone/csi`)   
+
+现在，使用如下命令，创建 CSI 相关的资源。
 
 ```bash
-ozone sh volume --help
+kubectl create -f /ozone/kubernetes/examples/ozone/csi
 ```
 
-这条命令展示了卷的所有可用的 _动作_ 命令
+## 创建 pv-test 并查看结果
 
-或者也可以用来解释具体的某个 _动作_ ，例如：
+通过执行以下命令，创建 pv-test 相关的资源。
 
 ```bash
-ozone sh volume create --help
+kubectl create -f /ozone/kubernetes/examples/ozone/pv-test
 ```
 
-这条命令输出卷的`create`动作的所有命令行选项
+连接 pod scm-0 并在 /s3v/pvc* 桶中创建一个键值。
 
-## 通用命令格式
-
-Ozone shell 命令采取以下形式:
-
-> _ozone sh object action url_
-
-**ozone** 脚本用于调用所有 Ozone 子命令。通过 ```sh``` 命令调用 ozone shell 命令。
-
-对象可以是卷、桶或键。动作可以是创建、列出、删除等。
-
-根据动作，Ozone URL 可以指向以下格式的卷、桶或键:
-
-_\[schema\]\[server:port\]/volume/bucket/key_
-
-
-其中，
-
-1. **Schema** - 应为 `o3`，这是访问 Ozone API 的原生 RPC 协议。是否指定 schema 是可选的。
-
-2. **Server:Port** - 应为 Ozone Manager 的地址。如果不指定端口，则将使用 ozone-site.xml 中的默认端口。
-
-请查看卷命令、桶命令和键命令部分了解更多详情。
-
-## 卷操作
-
-卷位于层次结构的顶层，仅由管理员管理。也可以指定所有者用户和配额。
-
-示例命令：
-
-```shell
-$ ozone sh volume create /vol1
-```
-
-```shell
-$ ozone sh volume info /vol1
-{
-  "metadata" : { },
-  "name" : "vol1",
-  "admin" : "hadoop",
-  "owner" : "hadoop",
-  "creationTime" : "2020-07-28T12:31:50.112Z",
-  "modificationTime" : "2020-07-28T12:31:50.112Z",
-  "acls" : [ {
-    "type" : "USER",
-    "name" : "hadoop",
-    "aclScope" : "ACCESS",
-    "aclList" : [ "ALL" ]
-  }, {
-    "type" : "GROUP",
-    "name" : "users",
-    "aclScope" : "ACCESS",
-    "aclList" : [ "ALL" ]
-  } ],
-  "quota" : 1152921504606846976
-}
-```
-
-```shell
-$ ozone sh volume list /
+```bash
+kubectl exec -it  scm-0  bash
+[hadoop@scm-0 ~]$ ozone sh bucket list s3v
 [ {
   "metadata" : { },
-  "name" : "s3v",
-  "admin" : "hadoop",
-  "owner" : "hadoop",
-  "creationTime" : "2020-07-27T11:32:22.314Z",
-  "modificationTime" : "2020-07-27T11:32:22.314Z",
-  "acls" : [ {
-    "type" : "USER",
-    "name" : "hadoop",
-    "aclScope" : "ACCESS",
-    "aclList" : [ "ALL" ]
-  }, {
-    "type" : "GROUP",
-    "name" : "users",
-    "aclScope" : "ACCESS",
-    "aclList" : [ "ALL" ]
-  } ],
-  "quota" : 1152921504606846976
-}, {
-  ....
-} ]
-```
-
-如果卷为空，我们可以使用以下命令删除卷。
-
-```shell
-$ ozone sh volume delete /vol1
-Volume vol1 is deleted
-```
-如果卷包含任意桶或键，我们可以递归地删除卷。这将删除卷中所有的桶和键，然后删除卷本身。在运行这个命令后，将无法恢复已删除的内容。
-
-```shell
-$ ozone sh volume delete -r /vol1
-This command will delete volume recursively.
-There is no recovery option after using this command, and no trash for FSO buckets.
-Delay is expected running this command.
-Enter 'yes' to proceed': yes
-Volume vol1 is deleted
-```
-
-## 桶操作
-
-桶是层次结构的第二层级，与 AWS S3 桶相似。如果用户有必要的权限，可以在卷中创建桶。
-
-示例命令：
-
-```shell
-$ ozone sh bucket create /vol1/bucket1
-```
-
-```shell
-$ ozone sh bucket info /vol1/bucket1
-{
-  "metadata" : { },
-  "volumeName" : "vol1",
-  "name" : "bucket1",
+  "volumeName" : "s3v",
+  "name" : "pvc-861e2d8b-2232-4cd1-b43c-c0c26697ab6b",
   "storageType" : "DISK",
   "versioning" : false,
-  "creationTime" : "2020-07-28T13:14:45.091Z",
-  "modificationTime" : "2020-07-28T13:14:45.091Z",
-  "encryptionKeyName" : null,
-  "sourceVolume" : null,
-  "sourceBucket" : null
-}
+  "creationTime" : "2020-06-11T08:19:47.469Z",
+  "encryptionKeyName" : null
+} ]
+[hadoop@scm-0 ~]$ ozone sh key put /s3v/pvc-861e2d8b-2232-4cd1-b43c-c0c26697ab6b/A LICENSE.txt
 ```
 
-如果桶是空的，我们可以用以下命令来删除桶。
+现在，通过映射 `ozone-csi-test-webserver-7cbdc5d65c-h5mnn` 端口，我们可以使用浏览器展示其 UI 页面。
 
-```shell
-$ ozone sh bucket delete /vol1/bucket1
-Bucket bucket1 is deleted
+```bash
+kubectl port-forward ozone-csi-test-webserver-7cbdc5d65c-h5mnn 8000:8000
 ```
 
-如果桶包含任意键，我们可以递归地删除桶。这将删除桶中的所有键，然后删除桶本身。在运行这个命令后，将无法恢复已删除的内容。
+最终，我们可以通过 `http://localhost:8000/` 看到结果
 
-```shell
-$ ozone sh bucket delete -r /vol1/bucket1
-This command will delete bucket recursively.
-There is no recovery option after using this command, and deleted keys won't move to trash.
-Enter 'yes' to proceed': yes
-Bucket bucket1 is deleted
-```
-[透明数据加密]({{< ref "security/SecuringTDE.md" >}}) 可以在桶层级被启用。
-
-## 键操作
-
-键是可以存储数据的对象。
-
-```shell
-$ ozone sh key put /vol1/bucket1/README.md README.md
-```
-
-<div class="alert alert-warning" role="alert">
-
-在这个命令中，标准的命令顺序 `ozone sh <object_type> <action> <url>` 可能会让使用者困惑, 因为它的格式是 `ozone sh key put <destination> <source>`， 而不是我们习惯的自然的顺序 `<source> <destination>`.
-</div>
-
-
-
-```shell
-$ ozone sh key info /vol1/bucket1/README.md
-{
-  "volumeName" : "vol1",
-  "bucketName" : "bucket1",
-  "name" : "README.md",
-  "dataSize" : 3841,
-  "creationTime" : "2020-07-28T13:17:20.749Z",
-  "modificationTime" : "2020-07-28T13:17:21.979Z",
-  "replicationType" : "RATIS",
-  "replicationFactor" : 1,
-  "ozoneKeyLocations" : [ {
-    "containerID" : 1,
-    "localID" : 104591670688743424,
-    "length" : 3841,
-    "offset" : 0
-  } ],
-  "metadata" : { },
-  "fileEncryptionInfo" : null
-}
-```
-
-```shell
-$ ozone sh key get /vol1/bucket1/README.md /tmp/
-```
-
-```shell
-$ ozone sh key delete /vol1/bucket1/key1
-```
-
-
-如果键是在 [FSO]({{< ref "feature/PrefixFSO.zh.md">}}) 桶中，当删除键时它会被移动到回收站，回收站的位置是:
-```shell
-$ /<volume>/<bucket>/.Trash/<user>
-```
-如果键是在OBS桶中，它将被永久删除。
-
-## 查询命令行结果
-
-Ozone命令行返回JSON响应。[jq](https://stedolan.github.io/jq/manual/) 是一个命令行JSON处理器，可以用来过滤CLI结果以获取所需信息.
-
-示例命令:
-
-* 列出不是链接的 FSO 桶。
-```shell
-$ ozone sh bucket list /s3v | jq '.[] | select(.link==false and .bucketLayout=="FILE_SYSTEM_OPTIMIZED")'
-{
-  "metadata": {},
-  "volumeName": "s3v",
-  "name": "fso-bucket",
-  "storageType": "DISK",
-  "versioning": false,
-  "usedBytes": 0,
-  "usedNamespace": 0,
-  "creationTime": "2023-02-01T05:18:46.974Z",
-  "modificationTime": "2023-02-01T05:18:46.974Z",
-  "quotaInBytes": -1,
-  "quotaInNamespace": -1,
-  "bucketLayout": "FILE_SYSTEM_OPTIMIZED",
-  "owner": "om",
-  "link": false
-}
-```
-
-* 列出 EC 桶以及它们的复制策略配置。
-```shell
-$ ozone sh bucket list /vol1 | jq -r '.[] | select(.replicationConfig.replicationType == "EC") | {"name": .name, "replicationConfig": .replicationConfig}'
-{
-  "name": "ec5",
-  "replicationConfig": {
-    "data": 3,
-    "parity": 2,
-    "ecChunkSize": 1048576,
-    "codec": "RS",
-    "replicationType": "EC",
-    "requiredNodes": 5
-  }
-}
-{
-  "name": "ec9",
-  "replicationConfig": {
-    "data": 6,
-    "parity": 3,
-    "ecChunkSize": 1048576,
-    "codec": "RS",
-    "replicationType": "EC",
-    "requiredNodes": 9
-  }
-}
-```
-
-* 以制表符分隔的格式列出加密桶的名字以及它们的加密的键名。
-```shell
-
-$ ozone sh bucket list /vol1 | jq -r '.[] | select(.encryptionKeyName != null) | [.name, .encryptionKeyName] | @tsv'
-ec5     key1
-encrypted-bucket        key1
-```
+![pvtest-webui](pvtest-webui.png)
