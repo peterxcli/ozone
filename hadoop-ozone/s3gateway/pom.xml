@@ -63,6 +63,11 @@
       <artifactId>picocli</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.github.datafusion-contrib</groupId>
+      <artifactId>datafusion-java</artifactId>
+      <version>0.14.1</version>
+    </dependency>
+    <dependency>
       <groupId>io.opentracing</groupId>
       <artifactId>opentracing-api</artifactId>
     </dependency>
@@ -101,6 +106,16 @@
     <dependency>
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-memory-core</artifactId>
+      <version>13.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-vector</artifactId>
+      <version>13.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
