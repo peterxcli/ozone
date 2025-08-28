@@ -34,9 +34,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.hadoop.hdds.StringUtils;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.utils.IOUtils;
 import org.apache.hadoop.hdds.utils.RocksDBStoreMetrics;
@@ -44,12 +46,15 @@ import org.apache.hadoop.hdds.utils.db.RocksDatabase.ColumnFamily;
 import org.apache.hadoop.hdds.utils.db.cache.TableCache;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedCompactRangeOptions;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedDBOptions;
+import org.apache.hadoop.hdds.utils.db.managed.ManagedSlice;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedStatistics;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedTransactionLogIterator;
 import org.apache.hadoop.hdds.utils.db.managed.ManagedWriteOptions;
 import org.apache.ozone.rocksdiff.RocksDBCheckpointDiffer;
 import org.apache.ozone.rocksdiff.RocksDBCheckpointDiffer.RocksDBCheckpointDifferHolder;
+import org.rocksdb.Range;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.TableProperties;
 import org.rocksdb.TransactionLogIterator.BatchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -221,12 +226,82 @@ public class RDBStore implements DBStore {
   }
 
   @Override
+  public void compactTable(String tableName, String startKey, String endKey) throws IOException {
+    LOG.info("Starting table compaction for table: {}, range: [{} - {}]", tableName, startKey, endKey);
+    try (ManagedCompactRangeOptions options = new ManagedCompactRangeOptions()) {
+      compactTable(tableName, startKey, endKey, options);
+    }
+    LOG.info("Completed table compaction for table: {}, range: [{} - {}]", tableName, startKey, endKey);
+  }
+
+  @Override
   public void compactTable(String tableName, ManagedCompactRangeOptions options) throws RocksDatabaseException {
     RocksDatabase.ColumnFamily columnFamily = db.getColumnFamily(tableName);
     if (columnFamily == null) {
       throw new RocksDatabaseException("Table not found: " + tableName);
     }
     db.compactRange(columnFamily, null, null, options);
+  }
+
+  @Override
+  public void compactTable(String tableName, String startKey, String endKey,
+      ManagedCompactRangeOptions options) throws IOException {
+    LOG.info("Starting table compaction with options for table: {}, range: [{} - {}]", tableName, startKey, endKey);
+    ColumnFamily columnFamily = db.getColumnFamily(tableName);
+    if (columnFamily == null) {
+      LOG.error("Table not found for compaction: {}", tableName);
+      throw new IOException("No such table in this DB. TableName : " + tableName);
+    }
+    db.compactRange(columnFamily, StringUtils.string2Bytes(startKey),
+        StringUtils.string2Bytes(endKey), options);
+    LOG.info("Completed table compaction with options for table: {}, range: [{} - {}]", tableName, startKey, endKey);
+  }
+
+  @Override
+  public Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, String startKey,
+      String endKey) throws IOException {
+    LOG.info("Getting table properties for table: {}, range: [{} - {}]", tableName, startKey, endKey);
+    Map<String, TableProperties> result = getPropertiesOfTableInRange(tableName, 
+        Collections.singletonList(new KeyRange(startKey, endKey)));
+    LOG.info("Retrieved {} table properties for table: {}, range: [{} - {}]", 
+        result.size(), tableName, startKey, endKey);
+    return result;
+  }
+
+  @Override
+  public Map<String, TableProperties> getPropertiesOfTableInRange(String tableName, 
+      List<KeyRange> ranges) throws IOException {
+    LOG.info("Getting table properties for table: {}, number of ranges: {}", tableName, ranges.size());
+    ColumnFamily columnFamily = db.getColumnFamily(tableName);
+    if (columnFamily == null) {
+      LOG.error("Table not found for getting properties: {}", tableName);
+      throw new IOException("No such table in this DB. TableName : " + tableName);
+    }
+    
+    List<Range> rocksRanges = new ArrayList<>();
+    List<ManagedSlice> managedSlices = new ArrayList<>();
+    try {
+      for (KeyRange t : ranges) {
+        ManagedSlice start = new ManagedSlice(StringUtils.string2Bytes(t.getStartKey()));
+        ManagedSlice end = new ManagedSlice(StringUtils.string2Bytes(t.getEndKey()));
+        managedSlices.add(start);
+        managedSlices.add(end);
+        rocksRanges.add(new Range(start, end));
+      }
+      LOG.info("Converted {} ranges to RocksDB ranges, start to get properties", rocksRanges.size());
+      return db.getPropertiesOfColumnFamilyInRange(columnFamily, rocksRanges);
+    } catch (RocksDatabaseException e) {
+      throw new IOException("Failed to get properties of table in range", e);
+    } finally {
+      // Close all ManagedSlice objects
+      for (ManagedSlice slice : managedSlices) {
+        try {
+          slice.close();
+        } catch (Exception e) {
+          LOG.warn("Failed to close ManagedSlice", e);
+        }
+      }
+    }
   }
 
   @Override
