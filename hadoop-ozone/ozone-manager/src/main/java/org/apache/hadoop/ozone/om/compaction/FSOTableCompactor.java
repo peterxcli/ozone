@@ -95,11 +95,28 @@ public class FSOTableCompactor extends AbstractCompactor {
       this.tombstoneCount = 0;
     }
     
-    double getCompactionPriority(double tombstoneRatio) {
-      if (entryCount == 0) return 0;
-      double tombstoneScore = (double) tombstoneCount / entryCount;
-      // Prioritize shallow directories by reducing score based on depth
-      return tombstoneScore * Math.pow(DEPTH_WEIGHT_FACTOR, depth);
+    public long getObjectId() {
+      return objectId;
+    }
+
+    public long getParentId() {
+      return parentId;
+    }
+
+    public int getDepth() {
+      return depth;
+    }
+
+    public String getPath() {
+      return path;
+    }
+
+    public long getEntryCount() {
+      return entryCount;
+    }
+
+    public long getTombstoneCount() {
+      return tombstoneCount;
     }
   }
 
@@ -156,7 +173,7 @@ public class FSOTableCompactor extends AbstractCompactor {
    * Build a cache of directory metadata for efficient range calculation.
    */
   private void buildDirectoryCache() throws IOException {
-    if (getTableName().equals(getMetadataManager().getDirectoryTableName())) {
+    if (getTableName().equals(getMetadataManager().getDirectoryTable().getName())) {
       LOG.info("Building directory cache for FSO compaction");
       
       Table<String, OmDirectoryInfo> dirTable = getMetadataManager().getDirectoryTable();
@@ -260,7 +277,7 @@ public class FSOTableCompactor extends AbstractCompactor {
     Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>> bucketEntry = bucketIter.next();
     OmBucketInfo bucketInfo = bucketEntry.getValue().getCacheValue();
     
-    currentVolumeId = bucketInfo.getVolumeId();
+    currentVolumeId = getMetadataManager().getVolumeId(bucketInfo.getVolumeName());
     currentBucketId = bucketInfo.getObjectID();
     currentParentId = bucketInfo.getObjectID(); // Start with bucket as parent
     
@@ -315,7 +332,7 @@ public class FSOTableCompactor extends AbstractCompactor {
     Map.Entry<CacheKey<String>, CacheValue<OmBucketInfo>> bucketEntry = bucketIter.next();
     OmBucketInfo bucketInfo = bucketEntry.getValue().getCacheValue();
     
-    currentVolumeId = bucketInfo.getVolumeId();
+    currentVolumeId = getMetadataManager().getVolumeId(bucketInfo.getVolumeName());
     currentBucketId = bucketInfo.getObjectID();
     currentParentId = bucketInfo.getObjectID();
     
@@ -468,7 +485,6 @@ public class FSOTableCompactor extends AbstractCompactor {
     return OM_KEY_PREFIX + volumeId + OM_KEY_PREFIX + bucketId;
   }
 
-  
   /**
    * Find ranges that fit within the max entries limit.
    */
@@ -571,7 +587,7 @@ public class FSOTableCompactor extends AbstractCompactor {
         DirectoryMetadata dirMeta = directoryCache.get(parentId);
         if (dirMeta != null) {
           dirMeta.entryCount += stats.getNumEntries();
-          dirMeta.tombstoneCount += stats.getNumDeletions();
+          dirMeta.tombstoneCount += stats.getNumDeletion();
         }
       } catch (NumberFormatException e) {
         // Ignore parsing errors
