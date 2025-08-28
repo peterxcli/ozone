@@ -32,6 +32,7 @@ import com.google.protobuf.ByteString;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -43,8 +44,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.hadoop.hdds.utils.TransactionInfo;
 import org.apache.hadoop.hdds.utils.db.BatchOperation;
+import org.apache.hadoop.hdds.utils.db.CodecException;
 import org.apache.hadoop.hdds.utils.db.Table;
 import org.apache.hadoop.ozone.om.OmMetadataManagerImpl;
+import org.apache.hadoop.ozone.om.OmSnapshotManager;
 import org.apache.hadoop.ozone.om.SnapshotChainManager;
 import org.apache.hadoop.ozone.om.helpers.SnapshotInfo;
 import org.apache.hadoop.ozone.om.request.OMRequestTestUtils;
@@ -151,11 +154,19 @@ public class TestOMSnapshotPurgeRequestAndResponse extends TestSnapshotRequestAn
 
   @Test
   public void testValidateAndUpdateCache() throws Exception {
-    long initialSnapshotPurgeCount = getOmMetrics().getNumSnapshotPurges();
-    long initialSnapshotPurgeFailCount = getOmMetrics().getNumSnapshotPurgeFails();
+    long initialSnapshotPurgeCount = getOmSnapshotIntMetrics().getNumSnapshotPurges();
+    long initialSnapshotPurgeFailCount = getOmSnapshotIntMetrics().getNumSnapshotPurgeFails();
 
     List<String> snapshotDbKeysToPurge = createSnapshots(10);
     assertFalse(getOmMetadataManager().getSnapshotInfoTable().isEmpty());
+
+    // Check if all the checkpoints are created.
+    for (Path checkpoint : checkpointPaths) {
+      assertTrue(Files.exists(checkpoint));
+      assertTrue(Files.exists(Paths.get(
+          OmSnapshotManager.getSnapshotLocalPropertyYamlPath(checkpoint))));
+    }
+
     OMRequest snapshotPurgeRequest = createPurgeKeysRequest(
         snapshotDbKeysToPurge);
 
@@ -179,9 +190,11 @@ public class TestOMSnapshotPurgeRequestAndResponse extends TestSnapshotRequestAn
     // Check if all the checkpoints are cleared.
     for (Path checkpoint : checkpointPaths) {
       assertFalse(Files.exists(checkpoint));
+      assertFalse(Files.exists(Paths.get(
+          OmSnapshotManager.getSnapshotLocalPropertyYamlPath(checkpoint))));
     }
-    assertEquals(initialSnapshotPurgeCount + 1, getOmMetrics().getNumSnapshotPurges());
-    assertEquals(initialSnapshotPurgeFailCount, getOmMetrics().getNumSnapshotPurgeFails());
+    assertEquals(initialSnapshotPurgeCount + 1, getOmSnapshotIntMetrics().getNumSnapshotPurges());
+    assertEquals(initialSnapshotPurgeFailCount, getOmSnapshotIntMetrics().getNumSnapshotPurgeFails());
   }
 
   @Test
@@ -225,15 +238,15 @@ public class TestOMSnapshotPurgeRequestAndResponse extends TestSnapshotRequestAn
    */
   @Test
   public void testValidateAndUpdateCacheFailure() throws Exception {
-    long initialSnapshotPurgeCount = getOmMetrics().getNumSnapshotPurges();
-    long initialSnapshotPurgeFailCount = getOmMetrics().getNumSnapshotPurgeFails();
+    long initialSnapshotPurgeCount = getOmSnapshotIntMetrics().getNumSnapshotPurges();
+    long initialSnapshotPurgeFailCount = getOmSnapshotIntMetrics().getNumSnapshotPurgeFails();
 
     List<String> snapshotDbKeysToPurge = createSnapshots(10);
 
     OmMetadataManagerImpl mockedMetadataManager = mock(OmMetadataManagerImpl.class);
     Table<String, SnapshotInfo> mockedSnapshotInfoTable = mock(Table.class);
 
-    when(mockedSnapshotInfoTable.get(anyString())).thenThrow(new IOException("Injected fault error."));
+    when(mockedSnapshotInfoTable.get(anyString())).thenThrow(new CodecException("Injected fault error."));
     when(mockedMetadataManager.getSnapshotInfoTable()).thenReturn(mockedSnapshotInfoTable);
     when(getOzoneManager().getMetadataManager()).thenReturn(mockedMetadataManager);
 
@@ -244,8 +257,8 @@ public class TestOMSnapshotPurgeRequestAndResponse extends TestSnapshotRequestAn
         omSnapshotPurgeRequest.validateAndUpdateCache(getOzoneManager(), 200L);
 
     assertEquals(INTERNAL_ERROR, omSnapshotPurgeResponse.getOMResponse().getStatus());
-    assertEquals(initialSnapshotPurgeCount, getOmMetrics().getNumSnapshotPurges());
-    assertEquals(initialSnapshotPurgeFailCount + 1, getOmMetrics().getNumSnapshotPurgeFails());
+    assertEquals(initialSnapshotPurgeCount, getOmSnapshotIntMetrics().getNumSnapshotPurges());
+    assertEquals(initialSnapshotPurgeFailCount + 1, getOmSnapshotIntMetrics().getNumSnapshotPurgeFails());
   }
 
   // TODO: clean up: Do we this test after

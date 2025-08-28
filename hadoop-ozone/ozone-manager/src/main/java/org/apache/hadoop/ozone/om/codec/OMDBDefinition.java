@@ -17,8 +17,10 @@
 
 package org.apache.hadoop.ozone.om.codec;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.hadoop.hdds.utils.TransactionInfo;
 import org.apache.hadoop.hdds.utils.db.DBColumnFamilyDefinition;
@@ -390,6 +392,14 @@ public final class OMDBDefinition extends DBDefinition.WithMap {
    */
   public static BucketLayout getBucketLayoutForTable(String tableName) {
     return TABLE_BUCKET_LAYOUT_MAP.get(tableName);
+  }
+
+  public static List<String> getAllColumnFamilies() {
+    List<String> columnFamilies = new ArrayList<>();
+    COLUMN_FAMILIES.values().forEach(cf -> {
+      columnFamilies.add(cf.getName());
+    });
+    return columnFamilies;
   }
 }
 

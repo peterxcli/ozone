@@ -1,7 +1,6 @@
 {
   "__inputs": [
     {
-      "name": "DS_PROMETHEUS",
       "label": "Prometheus",
       "description": "",
       "type": "datasource",
@@ -47,8 +46,7 @@
       {
         "builtIn": 1,
         "datasource": {
-          "type": "grafana",
-          "uid": "-- Grafana --"
+          "type": "grafana"
         },
         "enable": true,
         "hide": true,
@@ -2964,7 +2962,6 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "OM RocksDB",
-  "uid": "feegs4uzd60aoe",
   "version": 5,
   "weekStart": ""
 }
