@@ -36,6 +36,7 @@ function ozone_usage
   ozone_add_option "--jvmargs arguments" "append JVM options to any existing options defined in the OZONE_OPTS environment variable. Any defined in OZONE_CLIENT_OPTS will be append after these jvmargs"
   ozone_add_option "--validate (continue)" "validates if all jars as indicated in the corresponding OZONE_RUN_ARTIFACT_NAME classpath file are present, command execution shall continue post validation failure if 'continue' is passed"
 
+  ozone_add_subcommand "ag" daemon "run the admin REST gateway"
   ozone_add_subcommand "classpath" client "prints the class path needed for running ozone commands"
   ozone_add_subcommand "completion" client "generate autocompletion script for bash/zsh"
   ozone_add_subcommand "datanode" daemon "run a HDDS datanode"
@@ -97,6 +98,11 @@ function ozonecmd_case
         ls -1 ${OZONE_HOME}/share/ozone/classpath/ | sed 's/.classpath//'
         exit -1
       fi
+    ;;
+    ag)
+      OZONE_SUBCMD_SUPPORTDAEMONIZATION="true"
+      OZONE_CLASSNAME='org.apache.hadoop.ozone.admin.Gateway'
+      OZONE_RUN_ARTIFACT_NAME="ozone-admin-gateway"
     ;;
     completion)
       OZONE_CLASSNAME=org.apache.hadoop.ozone.utils.AutoCompletion;

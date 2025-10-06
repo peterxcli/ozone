@@ -25,6 +25,7 @@
   <name>Apache Ozone</name>
   <description>Apache Ozone Project</description>
   <modules>
+    <module>admin-gateway</module>
     <module>cli-admin</module>
     <module>cli-shell</module>
     <module>client</module>
