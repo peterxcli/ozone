@@ -15,14 +15,15 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.ozone.s3;
+package org.apache.ozone.admin;
 
 import java.io.IOException;
-import javax.annotation.PreDestroy;
 import javax.enterprise.context.RequestScoped;
 import javax.enterprise.inject.Produces;
 import javax.inject.Inject;
+import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.ozone.client.OzoneClient;
+import org.apache.hadoop.ozone.client.OzoneClientFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,20 +36,16 @@ public class OzoneClientProducer {
   private static final Logger LOG =
       LoggerFactory.getLogger(OzoneClientProducer.class);
 
-  private OzoneClient client;
+  private OzoneConfiguration ozoneConfiguration;
 
   @Inject
-  private OzoneClientCache clientCache;
-
-  @Produces
-  public OzoneClient createClient() {
-    client = clientCache.getClient();
-    return client;
+  public OzoneClientProducer(
+      OzoneConfiguration ozoneConfiguration) {
+    this.ozoneConfiguration = ozoneConfiguration;
   }
 
-  @PreDestroy
-  public void destroy() throws IOException {
-    LOG.debug("{}: Clearing thread-local auth", this);
-    client.getObjectStore().getClientProxy().clearThreadLocalS3Auth();
+  @Produces
+  public OzoneClient createClient() throws IOException {
+    return OzoneClientFactory.getRpcClient(ozoneConfiguration);
   }
 }

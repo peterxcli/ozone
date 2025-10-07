@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.ozone.s3;
+package org.apache.ozone.admin;
 
 import com.google.common.annotations.VisibleForTesting;
 import javax.enterprise.inject.Produces;
@@ -45,7 +45,7 @@ public final class OzoneConfigurationHolder {
     // Nullity check is used in case the configuration was already set
     // in the MiniOzoneCluster
     if (configuration == null) {
-      OzoneConfigurationHolder.configuration = conf;
+      configuration = conf;
     }
   }
 

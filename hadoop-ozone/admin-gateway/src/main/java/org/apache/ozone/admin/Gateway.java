@@ -17,6 +17,7 @@
 
 package org.apache.ozone.admin;
 
+import java.io.IOException;
 import java.util.concurrent.Callable;
 import org.apache.hadoop.hdds.cli.GenericCli;
 import org.apache.hadoop.hdds.cli.HddsVersionProvider;
@@ -35,7 +36,9 @@ import picocli.CommandLine.Command;
     mixinStandardHelpOptions = true)
 public class Gateway extends GenericCli implements Callable<Void> {
 
-  private static Logger LOG = LoggerFactory.getLogger(Gateway.class);
+  private static final Logger LOG = LoggerFactory.getLogger(Gateway.class);
+
+  private AdminGatewayHttpServer httpServer;
 
   public static void main(String[] args) throws Exception {
     OzoneNetUtils.disableJvmNetworkAddressCacheIfRequired(
@@ -43,18 +46,22 @@ public class Gateway extends GenericCli implements Callable<Void> {
     new Gateway().run(args);
   }
 
-
   @Override
   public Void call() throws Exception {
+    OzoneConfiguration conf = getOzoneConf();
+    OzoneConfigurationHolder.setConfiguration(conf);
+    httpServer = new AdminGatewayHttpServer(conf, "adminGateway");
     start();
     return null;
   }
 
-  public void start() {
+  public void start() throws IOException {
     LOG.info("Starting Ozone admin gateway");
+    httpServer.start();
   }
 
-  public void stop() {
+  public void stop() throws Exception {
     LOG.info("Stoping Ozone admin gateway");
+    httpServer.stop();
   }
 }

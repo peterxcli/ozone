@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.ozone.s3;
+package org.apache.ozone.admin;
 
 import org.glassfish.jersey.server.ResourceConfig;
 
@@ -24,6 +24,6 @@ import org.glassfish.jersey.server.ResourceConfig;
  */
 public class GatewayApplication extends ResourceConfig {
   public GatewayApplication() {
-    packages("org.apache.hadoop.ozone.s3");
+    packages("org.apache.hadoop.ozone.admin");
   }
 }
