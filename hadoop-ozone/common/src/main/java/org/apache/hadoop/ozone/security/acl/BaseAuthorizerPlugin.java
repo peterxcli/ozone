@@ -92,7 +92,7 @@ public abstract class BaseAuthorizerPlugin implements IAccessAuthorizerPlugin,
   private final AtomicBoolean healthy = new AtomicBoolean(true);
 
   // Cache
-  private Cache<CacheKey, Boolean> decisionCache;
+  private Cache<CacheKey, CachedDecision> decisionCache;
   private boolean cacheEnabled;
   private long cacheTtlMs;
 
@@ -129,9 +129,10 @@ public abstract class BaseAuthorizerPlugin implements IAccessAuthorizerPlugin,
     if (cacheEnabled) {
       int cacheSize = conf.getInt(CACHE_SIZE_KEY, CACHE_SIZE_DEFAULT);
       cacheTtlMs = conf.getLong(CACHE_TTL_MS_KEY, CACHE_TTL_MS_DEFAULT);
+      // Use max TTL for cache expiration, but check per-entry TTL on retrieval
       decisionCache = CacheBuilder.newBuilder()
           .maximumSize(cacheSize)
-          .expireAfterWrite(cacheTtlMs, TimeUnit.MILLISECONDS)
+          .expireAfterWrite(cacheTtlMs * 2, TimeUnit.MILLISECONDS)
           .recordStats()
           .removalListener(notification -> cacheEvictions.incrementAndGet())
           .build();
@@ -194,15 +195,18 @@ public abstract class BaseAuthorizerPlugin implements IAccessAuthorizerPlugin,
       // Check cache first
       if (cacheEnabled) {
         CacheKey key = buildCacheKey(ozoneObject, context);
-        Boolean cachedDecision = decisionCache.getIfPresent(key);
-        if (cachedDecision != null) {
-          allowed = cachedDecision;
+        CachedDecision cachedDecision = decisionCache.getIfPresent(key);
+        if (cachedDecision != null && !cachedDecision.isExpired()) {
+          allowed = cachedDecision.getDecision();
           cached = true;
           cacheHits.incrementAndGet();
           if (metricsEnabled) {
             metrics.recordCacheHit();
           }
           return allowed;
+        } else if (cachedDecision != null && cachedDecision.isExpired()) {
+          // Remove expired entry
+          decisionCache.invalidate(key);
         }
         cacheMisses.incrementAndGet();
         if (metricsEnabled) {
@@ -282,21 +286,36 @@ public abstract class BaseAuthorizerPlugin implements IAccessAuthorizerPlugin,
     if (!cacheEnabled || decisionCache == null) {
       return Optional.empty();
     }
-    return Optional.ofNullable(decisionCache.getIfPresent(key));
+    CachedDecision cached = decisionCache.getIfPresent(key);
+    if (cached != null && !cached.isExpired()) {
+      return Optional.of(cached.getDecision());
+    } else if (cached != null && cached.isExpired()) {
+      decisionCache.invalidate(key);
+    }
+    return Optional.empty();
   }
 
   @Override
   public void put(CacheKey key, boolean decision, long ttlMillis) {
     if (cacheEnabled && decisionCache != null) {
-      decisionCache.put(key, decision);
+      long expirationTime = System.currentTimeMillis() + ttlMillis;
+      decisionCache.put(key, new CachedDecision(decision, expirationTime));
     }
   }
 
   @Override
   public void invalidateResource(String resourcePath) {
     if (cacheEnabled && decisionCache != null) {
-      decisionCache.asMap().keySet().removeIf(
-          key -> key.getResourcePath().startsWith(resourcePath));
+      // Normalize the resource path
+      String normalizedPath = resourcePath.endsWith("/") 
+          ? resourcePath : resourcePath + "/";
+      
+      decisionCache.asMap().keySet().removeIf(key -> {
+        String keyPath = key.getResourcePath();
+        // Exact match or hierarchical match (e.g., /vol1 matches /vol1/bucket1)
+        return keyPath.equals(resourcePath) 
+            || keyPath.startsWith(normalizedPath);
+      });
     }
   }
 
@@ -404,4 +423,26 @@ public abstract class BaseAuthorizerPlugin implements IAccessAuthorizerPlugin,
    * @throws IOException if cleanup fails
    */
   protected abstract void doStop() throws IOException;
+
+  /**
+   * Wrapper class to store cached authorization decisions with expiration time.
+   * Allows per-entry TTL support even though Guava Cache uses a global TTL.
+   */
+  private static class CachedDecision {
+    private final boolean decision;
+    private final long expirationTimeMs;
+
+    CachedDecision(boolean decision, long expirationTimeMs) {
+      this.decision = decision;
+      this.expirationTimeMs = expirationTimeMs;
+    }
+
+    boolean getDecision() {
+      return decision;
+    }
+
+    boolean isExpired() {
+      return System.currentTimeMillis() > expirationTimeMs;
+    }
+  }
 }
