@@ -2404,6 +2404,15 @@ public final class OzoneManager extends ServiceRuntimeInfoImpl
       if (isOmGrpcServerEnabled) {
         isOmGrpcServerRunning = false;
       }
+      // Close authorizer plugins if they manage lifecycle/resources
+      if (accessAuthorizer instanceof java.io.Closeable) {
+        try {
+          ((java.io.Closeable) accessAuthorizer).close();
+        } catch (java.io.IOException e) {
+          LOG.warn("Failed to close accessAuthorizer", e);
+        }
+      }
+
       keyManager.stop();
       stopSecretManager();
 
