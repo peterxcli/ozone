@@ -88,6 +88,18 @@ public final class OzoneAuthorizerFactory {
 
     final IAccessAuthorizer authorizer = newInstance(clazz, conf);
 
+    // Handle plugin lifecycle for IAccessAuthorizerPlugin implementations
+    if (authorizer instanceof IAccessAuthorizerPlugin) {
+      try {
+        ((IAccessAuthorizerPlugin) authorizer).start(conf);
+        LOG.info("Started authorizer plugin: {}", authorizer.getClass().getName());
+      } catch (Exception e) {
+        LOG.error("Failed to start authorizer plugin", e);
+        throw new RuntimeException("Failed to start authorizer plugin: " +
+            authorizer.getClass().getName(), e);
+      }
+    }
+
     if (authorizer instanceof OzoneManagerAuthorizer) {
       return ((OzoneManagerAuthorizer) authorizer).configure(om, km, pm);
     }
