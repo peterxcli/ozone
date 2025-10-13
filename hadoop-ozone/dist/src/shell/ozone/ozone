@@ -101,7 +101,7 @@ function ozonecmd_case
     ;;
     ag)
       OZONE_SUBCMD_SUPPORTDAEMONIZATION="true"
-      OZONE_CLASSNAME='org.apache.hadoop.ozone.admin.Gateway'
+      OZONE_CLASSNAME='org.apache.ozone.admin.Gateway'
       OZONE_RUN_ARTIFACT_NAME="ozone-admin-gateway"
     ;;
     completion)

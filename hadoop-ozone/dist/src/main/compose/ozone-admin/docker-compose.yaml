@@ -86,6 +86,9 @@ services:
     command: ["ozone","recon"]
   admin:
     <<: *common-config
+    hostname: admin
+    ports:
+      - 9842:9842
     environment:
       OZONE_OPTS:
       <<: *replication
