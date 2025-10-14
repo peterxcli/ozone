@@ -1,0 +1,196 @@
+/**
+ * Extended SpiceDB schema supporting both ACLs and Bucket Policies
+ * File: ozone-s3-acl-policy.zed
+ * 
+ * This schema extends the base ACL schema with:
+ * - Caveats for policy conditions (IP, time, encryption, MFA, VPC endpoint, etc.)
+ * - Deny relations for explicit deny statements
+ * - Subtraction operator for deny-takes-precedence logic
+ */
+// ============================================================================
+// CAVEATS (Policy Conditions)
+// ============================================================================
+caveat ip_allowlist(allowed_cidrs list<string>, source_ip string) {
+	allowed_cidrs.exists(cidr, source_ip.matches(cidr))
+}
+
+caveat ip_denylist(denied_cidrs list<string>, source_ip string) {
+	!denied_cidrs.exists(cidr, source_ip.matches(cidr))
+}
+
+caveat time_restriction(current_time timestamp, end_time timestamp, start_time timestamp) {
+	current_time >= start_time && current_time <= end_time
+}
+
+caveat require_encryption(encryption_header string, required_encryption list<string>) {
+	encryption_header in required_encryption
+}
+
+caveat require_mfa(mfa_authenticated bool) {
+	mfa_authenticated == true
+}
+
+caveat vpc_endpoint_only(allowed_vpc_endpoints list<string>, vpc_endpoint_id string) {
+	vpc_endpoint_id in allowed_vpc_endpoints
+}
+
+caveat require_secure_transport(is_secure_transport bool) {
+	is_secure_transport == true
+}
+
+caveat string_like(pattern string, request_header string) {
+	request_header.matches(pattern)
+}
+
+caveat principal_org_id(allowed_org_ids list<string>, principal_org_id string) {
+	principal_org_id in allowed_org_ids
+}
+
+// ============================================================================
+// CORE DEFINITIONS
+// ============================================================================
+definition user {}
+
+definition tenant {
+	relation admin: user
+	relation member: user
+	relation bucket_owner: user
+	permission is_admin = admin
+	permission create_bucket = admin
+	permission manage_users = admin
+	permission is_member = member + admin
+}
+
+definition authenticated_users {
+	relation member: user
+	permission is_authenticated = member
+}
+
+definition log_delivery_group {
+	relation service_account: user
+	permission can_deliver_logs = service_account
+}
+
+definition volume {
+	relation tenant: tenant
+	relation admin: user
+	permission create_bucket = admin + tenant->is_admin
+	permission list_buckets = admin + tenant->is_admin + tenant->is_member
+	permission delete_bucket = admin + tenant->is_admin
+}
+
+// ============================================================================
+// BUCKET WITH ACL + POLICY SUPPORT
+// ============================================================================
+definition bucket {
+	// === CORE RELATIONS ===
+	relation tenant: tenant
+	relation volume: volume
+	relation owner: user
+
+	// === ACL RELATIONS (from previous schema) ===
+	relation reader: user
+	relation writer: user
+	relation read_acp_user: user
+	relation write_acp_user: user
+	relation full_control_user: user
+	relation public_reader: user:*
+	relation public_writer: user:*
+	relation authenticated_reader: authenticated_users#member
+	relation log_delivery: log_delivery_group#service_account
+	relation default_reader: user
+	relation default_writer: user
+	relation default_read_acp_user: user
+	relation default_write_acp_user: user
+	relation default_full_control_user: user
+
+	// === BUCKET POLICY RELATIONS (with caveats) ===
+	// Conditional readers (allow statements with conditions)
+	relation policy_reader: user with ip_allowlist
+	relation policy_reader_time: user with time_restriction
+	relation policy_reader_vpc: user with vpc_endpoint_only
+
+	// Conditional writers (allow statements with conditions)
+	relation policy_writer: user with require_encryption
+	relation policy_writer_secure: user with require_secure_transport
+	relation policy_writer_mfa: user with require_mfa
+
+	// Deny statements (explicit denies override allows)
+	relation deny_reader: user with ip_denylist
+	relation deny_writer: user
+	relation deny_delete: user
+
+	// === EXPOSED PERMISSIONS FOR INHERITANCE ===
+	// Permissions that expose relations for object inheritance
+	permission inherit_default_reader = default_reader
+	permission inherit_default_writer = default_writer
+	permission inherit_default_read_acp = default_read_acp_user
+	permission inherit_default_write_acp = default_write_acp_user
+	permission inherit_default_full_control = default_full_control_user
+	permission inherit_policy_reader = policy_reader
+	permission inherit_policy_writer = policy_writer
+	permission inherit_deny_delete = deny_delete
+
+	// === PERMISSIONS WITH POLICY EVALUATION ===
+	/**
+	 * READ permission with policy evaluation
+	 * Order: Explicit deny → ACL allows → Policy allows
+	 */
+	permission read = reader + writer + full_control_user + owner + public_reader + authenticated_reader + policy_reader + policy_reader_time + policy_reader_vpc + tenant->is_admin - deny_reader
+
+	/** WRITE permission with policy evaluation */
+	permission write = writer + full_control_user + owner + public_writer + policy_writer + policy_writer_secure + policy_writer_mfa + tenant->is_admin - deny_writer
+
+	/** DELETE permission with policy evaluation */
+	permission delete = owner + full_control_user + tenant->is_admin - deny_delete
+	permission read_acp = read_acp_user + full_control_user + owner + tenant->is_admin
+	permission write_acp = write_acp_user + full_control_user + owner + tenant->is_admin
+	permission full_control = full_control_user + owner + tenant->is_admin
+	permission change_owner = owner + tenant->is_admin
+	permission tenant_admin = tenant->is_admin
+}
+
+// ============================================================================
+// OBJECT WITH ACL + POLICY SUPPORT
+// ============================================================================
+definition object {
+	relation bucket: bucket
+	relation owner: user
+	relation uploader: user
+
+	// ACL relations
+	relation reader: user
+	relation writer: user
+	relation read_acp_user: user
+	relation write_acp_user: user
+	relation full_control_user: user
+	relation public_reader: user:*
+	relation public_writer: user:*
+	relation authenticated_reader: authenticated_users#member
+
+	// Policy relations with caveats
+	relation policy_reader: user with ip_allowlist
+	relation policy_writer: user with require_encryption
+
+	// Deny relations
+	relation deny_reader: user
+	relation deny_writer: user
+
+	// Permissions with inheritance and policy evaluation
+	permission read = reader + writer + full_control_user + owner + public_reader + authenticated_reader + policy_reader + bucket->inherit_default_reader + bucket->inherit_policy_reader + bucket->tenant_admin - deny_reader
+	permission write = writer + full_control_user + owner + public_writer + policy_writer + bucket->inherit_default_writer + bucket->inherit_policy_writer + bucket->tenant_admin - deny_writer
+	permission read_acp = read_acp_user + full_control_user + owner + bucket->inherit_default_read_acp + bucket->tenant_admin
+	permission write_acp = write_acp_user + full_control_user + owner + bucket->inherit_default_write_acp + bucket->tenant_admin
+	permission full_control = full_control_user + owner + bucket->inherit_default_full_control + bucket->tenant_admin
+	permission delete = owner + full_control_user + bucket->write + bucket->tenant_admin - bucket->inherit_deny_delete
+}
+
+// ============================================================================
+// CROSS-TENANT SUPPORT
+// ============================================================================
+definition tenant_sharing_policy {
+	relation source_tenant: tenant
+	relation target_tenant: tenant
+	relation approved_by: user
+	permission can_share = source_tenant->is_admin
+}

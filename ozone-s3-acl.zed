@@ -1,0 +1,220 @@
+/**
+ * Complete SpiceDB schema for AWS S3 ACL compatibility in Apache Ozone
+ * File: ozone-s3-acl.zed
+ * Supports: Canned ACLs, Predefined Groups, Object ACLs, Cross-Tenant Grants
+ * 
+ * Note: For bucket policy support with Caveats, see ozone-s3-acl-policy.zed (Section 15.3)
+ */
+// ============================================================================
+// CORE DEFINITIONS
+// ============================================================================
+/**
+ * User represents an authenticated user (from Keycloak OAuth2)
+ * Example: user:auth0|507f1f77bcf86cd799439011
+ */
+definition user {}
+
+/**
+ * Tenant represents a multi-tenant namespace
+ * Example: tenant:acme-corp
+ */
+definition tenant {
+	// Relations
+	relation admin: user
+	relation member: user
+	relation bucket_owner: user
+
+	// Permissions
+	permission create_bucket = admin
+	permission manage_users = admin
+	permission is_member = member + admin
+}
+
+// ============================================================================
+// PREDEFINED GROUPS (AWS S3 Standard)
+// ============================================================================
+/**
+ * AllUsers - Represents anyone (anonymous or authenticated)
+ * Maps to: http://acs.amazonaws.com/groups/global/AllUsers
+ * 
+ * In SpiceDB, we use user:* wildcard to represent this group
+ * No separate definition needed - it's built-in!
+ */
+/**
+ * AuthenticatedUsers - Any user with valid OAuth2 token
+ * Maps to: http://acs.amazonaws.com/groups/global/AuthenticatedUsers
+ */
+definition authenticated_users {
+	// Any authenticated user is a member
+	relation member: user
+	permission is_authenticated = member
+}
+
+/**
+ * LogDelivery - S3 Log Delivery service account
+ * Maps to: http://acs.amazonaws.com/groups/s3/LogDelivery
+ */
+definition log_delivery_group {
+	relation service_account: user
+	permission can_deliver_logs = service_account
+}
+
+// ============================================================================
+// S3 RESOURCES
+// ============================================================================
+/**
+ * Volume represents an Ozone volume (container for buckets)
+ * Example: volume:s3v-acme-corp
+ */
+definition volume {
+	// Relations
+	relation tenant: tenant
+	relation admin: user
+
+	// Permissions
+	permission create_bucket = admin + tenant->admin
+	permission list_buckets = admin + tenant->admin + tenant->is_member
+	permission delete_bucket = admin + tenant->admin
+}
+
+/**
+ * Bucket represents an S3-compatible bucket with full ACL support
+ * Example: bucket:my-bucket
+ */
+definition bucket {
+	// === CORE RELATIONS ===
+	relation tenant: tenant
+	relation volume: volume
+	relation owner: user
+
+	// === S3 ACL GRANTEE RELATIONS ===
+	// Individual user grants (CanonicalUser)
+	relation reader: user
+	relation writer: user
+	relation read_acp_user: user
+	relation write_acp_user: user
+	relation full_control_user: user
+
+	// Public access (AllUsers group) - using wildcard
+	relation public_reader: user:*
+	relation public_writer: user:*
+
+	// Authenticated users group
+	relation authenticated_reader: authenticated_users#member
+
+	// Log delivery
+	relation log_delivery: log_delivery_group#service_account
+
+	// Default ACL for new objects (inheritance)
+	relation default_reader: user
+	relation default_writer: user
+	relation default_read_acp_user: user
+	relation default_write_acp_user: user
+	relation default_full_control_user: user
+
+	// === S3 ACL PERMISSIONS ===
+	/**
+	 * READ - List objects in bucket
+	 * Granted to: explicit readers, writers, full control users, owner,
+	 * public readers, authenticated readers, tenant admins
+	 */
+	permission read = reader + writer + full_control_user + owner + public_reader + authenticated_reader + tenant->admin
+
+	/**
+	 * WRITE - Create/overwrite/delete objects
+	 * Granted to: explicit writers, full control users, owner,
+	 * public writers, tenant admins
+	 */
+	permission write = writer + full_control_user + owner + public_writer + tenant->admin
+
+	/**
+	 * READ_ACP - Read bucket ACL
+	 * Granted to: explicit read_acp users, full control users, owner,
+	 * tenant admins
+	 */
+	permission read_acp = read_acp_user + full_control_user + owner + tenant->admin
+
+	/**
+	 * WRITE_ACP - Write bucket ACL
+	 * Granted to: explicit write_acp users, full control users, owner,
+	 * tenant admins
+	 */
+	permission write_acp = write_acp_user + full_control_user + owner + tenant->admin
+
+	/** FULL_CONTROL - All permissions on bucket */
+	permission full_control = full_control_user + owner + tenant->admin
+
+	// Administrative permissions
+	permission delete = owner + tenant->admin
+	permission change_owner = owner + tenant->admin
+  permission tenant_admin = tenant->admin
+}
+
+/**
+ * Object represents an S3 object (key) with full ACL support
+ * Example: object:my-bucket/path/to/file.txt
+ */
+definition object {
+	// === CORE RELATIONS ===
+	relation bucket: bucket
+	relation owner: user
+	relation uploader: user
+
+	// === S3 ACL GRANTEE RELATIONS (Object-Specific) ===
+	// Individual user grants
+	relation reader: user
+	relation writer: user
+	relation read_acp_user: user
+	relation write_acp_user: user
+	relation full_control_user: user
+
+	// Public access
+	relation public_reader: user:*
+	relation public_writer: user:*
+
+	// Authenticated users
+	relation authenticated_reader: authenticated_users#member
+
+	// === S3 ACL PERMISSIONS WITH INHERITANCE ===
+	/**
+	 * READ - Read object data
+	 * Inheritance: If no explicit object ACL, inherit from bucket's default_reader
+	 */
+	permission read = reader + writer + full_control_user + owner + public_reader + authenticated_reader + bucket->default_reader + bucket->tenant_admin
+
+	/**
+	 * WRITE - Overwrite/modify object
+	 * Note: In S3, WRITE on object typically means delete/overwrite
+	 */
+	permission write = writer + full_control_user + owner + public_writer + bucket->default_writer + bucket->tenant_admin
+
+	/** READ_ACP - Read object ACL */
+	permission read_acp = read_acp_user + full_control_user + owner + bucket->default_read_acp_user + bucket->tenant_admin
+
+	/** WRITE_ACP - Write object ACL */
+	permission write_acp = write_acp_user + full_control_user + owner + bucket->default_write_acp_user + bucket->tenant_admin
+
+	/** FULL_CONTROL - All permissions on object */
+	permission full_control = full_control_user + owner + bucket->default_full_control_user + bucket->tenant_admin
+
+	/**
+	 * DELETE - Delete object
+	 * Requires WRITE permission on bucket + ownership or explicit grant
+	 */
+	permission delete = owner + full_control_user + bucket->write + bucket->tenant_admin
+}
+
+// ============================================================================
+// CROSS-ACCOUNT (CROSS-TENANT) SUPPORT
+// ============================================================================
+/**
+ * Cross-tenant sharing policy
+ * Example: sharing_policy:tenant1-to-tenant2
+ */
+definition tenant_sharing_policy {
+	relation source_tenant: tenant
+	relation target_tenant: tenant
+	relation approved_by: user
+	permission can_share = source_tenant->admin
+}
+

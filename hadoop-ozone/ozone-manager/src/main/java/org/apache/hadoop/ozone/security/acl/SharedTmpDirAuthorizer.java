@@ -17,6 +17,8 @@
 
 package org.apache.hadoop.ozone.security.acl;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.Objects;
 import org.apache.hadoop.ozone.OFSPath;
 import org.apache.hadoop.ozone.om.exceptions.OMException;
@@ -24,7 +26,7 @@ import org.apache.hadoop.ozone.om.exceptions.OMException;
 /**
  * SharedTmp implementation of {@link IAccessAuthorizer}.
  */
-public class SharedTmpDirAuthorizer implements IAccessAuthorizer {
+public class SharedTmpDirAuthorizer implements IAccessAuthorizer, Closeable {
 
   private final OzoneNativeAuthorizer ozoneNativeAuthorizer;
   private final IAccessAuthorizer authorizer;
@@ -55,5 +57,12 @@ public class SharedTmpDirAuthorizer implements IAccessAuthorizer {
       }
     }
     return authorizer.checkAccess(ozObject, context);
+  }
+
+  @Override
+  public void close() throws IOException {
+    if (authorizer instanceof Closeable) {
+      ((Closeable) authorizer).close();
+    }
   }
 }
