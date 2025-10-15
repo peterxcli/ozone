@@ -24,6 +24,6 @@ import org.glassfish.jersey.server.ResourceConfig;
  */
 public class GatewayApplication extends ResourceConfig {
   public GatewayApplication() {
-    packages("org.apache.hadoop.ozone.admin");
+    packages("org.apache.ozone.admin");
   }
 }

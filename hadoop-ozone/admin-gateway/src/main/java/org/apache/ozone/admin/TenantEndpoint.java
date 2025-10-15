@@ -36,11 +36,13 @@ public class TenantEndpoint extends EndpointBase {
 
   @PUT
   public void put(@PathParam("tenantId") String tenantId) throws IOException {
+    LOG.info("Creating tenant: {}", tenantId);
     getObjectStore().createTenant(tenantId);
   }
 
   @DELETE
   public void delete(@PathParam("tenantId") String tenantId) throws IOException {
+    LOG.info("Deleting tenant: {}", tenantId);
     getObjectStore().deleteTenant(tenantId);
   }
 }

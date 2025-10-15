@@ -17,32 +17,34 @@
 
 package org.apache.ozone.admin;
 
-import javax.ws.rs.GET;
+import java.io.IOException;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import org.apache.hadoop.ozone.om.helpers.TenantStateList;
+import javax.ws.rs.PathParam;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * REST endpoint for listing tenants.
+ * REST endpoint for tenant management.
  */
-@Path("/tenants")
-public class ListTenant extends EndpointBase {
+@Path("/tenants/{tenantId}/buckets/{bucketName}")
+public class BucketEndpoint extends EndpointBase {
 
   private static final Logger LOG =
-      LoggerFactory.getLogger(ListTenant.class);
+      LoggerFactory.getLogger(BucketEndpoint.class);
 
-  @GET
-  @Produces(MediaType.APPLICATION_XML)
-  public Response get() throws Exception {
-    LOG.info("Listing tenants");
-    TenantStateList tanents = getObjectStore().listTenant();
-    ListTanentResponse response = new ListTanentResponse();
-    tanents.getTenantStateList().forEach(t ->
-        response.addTenant(t.getTenantId()));
-    return Response.ok(response).build();
+  @PUT
+  public void put(@PathParam("tenantId") String tenantId,
+                  @PathParam("bucketName") String bucketName)
+      throws IOException {
+    LOG.info("Creating tenant: {}", tenantId);
+    getObjectStore().createTenant(tenantId);
+  }
+
+  @DELETE
+  public void delete(@PathParam("bucketName") String tenantId) throws IOException {
+    LOG.info("Deleting tenant: {}", tenantId);
+    getObjectStore().deleteTenant(tenantId);
   }
 }
