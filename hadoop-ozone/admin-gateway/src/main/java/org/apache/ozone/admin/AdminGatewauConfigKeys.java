@@ -49,6 +49,44 @@ public final class AdminGatewauConfigKeys {
   public static final String OZONE_ADMIN_GATEWAY_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL =
       OZONE_ADMIN_GATEWAY_AUTH_CONFIG_PREFIX + "kerberos.principal";
 
+  // JuiceFS Configuration Keys
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CONFIG_PREFIX =
+      "ozone.admin.gateway.juicefs.";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_ENABLED =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CONFIG_PREFIX + "enabled";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_DEFAULT_STORAGE =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CONFIG_PREFIX + "default.storage";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_MOUNT_BASE_PATH =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CONFIG_PREFIX + "mount.base-path";
+
+  // JuiceFS Catalog Configuration Keys
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CONFIG_PREFIX + "catalog.";
+
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_DB_HOST =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX + "database.host";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_DB_PORT =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX + "database.port";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_DB_NAME =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX + "database.name";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_DB_USERNAME =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX + "database.username";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_DB_PASSWORD =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX + "database.password";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_TENANT_ISOLATION =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX + "tenant.isolation";
+  
+  public static final String OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_AUTO_CLEANUP =
+      OZONE_ADMIN_GATEWAY_JUICEFS_CATALOG_CONFIG_PREFIX + "auto.cleanup";
+
   /**
    * Never constructed.
    */

@@ -15,10 +15,18 @@
  * limitations under the License.
  */
 
-/**
- * Admin Gateway package for Ozone.
- * 
- * This package contains the REST API endpoints and services for the Ozone Admin Gateway,
- * including support for JuiceFS filesystem management.
- */
 package org.apache.ozone.admin;
+
+/**
+ * Exception thrown when a remote volume already exists.
+ */
+public class RemoteVolumeAlreadyExistsException extends Exception {
+
+  public RemoteVolumeAlreadyExistsException(String message) {
+    super(message);
+  }
+
+  public RemoteVolumeAlreadyExistsException(String message, Throwable cause) {
+    super(message, cause);
+  }
+}

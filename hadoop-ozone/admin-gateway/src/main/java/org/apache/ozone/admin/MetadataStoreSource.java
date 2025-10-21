@@ -15,10 +15,20 @@
  * limitations under the License.
  */
 
-/**
- * Admin Gateway package for Ozone.
- * 
- * This package contains the REST API endpoints and services for the Ozone Admin Gateway,
- * including support for JuiceFS filesystem management.
- */
 package org.apache.ozone.admin;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+/**
+ * Enum for metadata store source types.
+ */
+public enum MetadataStoreSource {
+  @JsonProperty("internal")
+  INTERNAL,
+
+  @JsonProperty("external")
+  EXTERNAL,
+
+  @JsonProperty("managed")
+  MANAGED
+}
