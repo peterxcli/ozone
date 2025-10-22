@@ -1,0 +1,180 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Ozone cluster with Keycloak STS integration
+
+x-common-config:
+  &common-config
+  image: ${OZONE_RUNNER_IMAGE}:${OZONE_RUNNER_VERSION}
+  volumes:
+    - ../..:/opt/hadoop
+  env_file:
+    - docker-config
+
+x-replication:
+  &replication
+  OZONE-SITE.XML_ozone.server.default.replication: ${OZONE_REPLICATION_FACTOR:-1}
+
+services:
+  # PostgreSQL for Keycloak
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ozone
+
+  # Keycloak OIDC Provider
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: true
+      KC_METRICS_ENABLED: true
+      KC_HOSTNAME_STRICT: false
+      KC_HTTP_ENABLED: true
+    ports:
+      - 8080:8080
+    volumes:
+      - ./keycloak-realm.json:/opt/keycloak/data/import/realm.json
+      - keycloak_data:/opt/keycloak/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n' >&3;grep 'HTTP/1.1 200 OK' <&3"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    networks:
+      - ozone
+
+  # Ozone SCM
+  scm:
+    <<: *common-config
+    container_name: scm
+    hostname: scm
+    ports:
+      - 9876:9876
+      - 9860:9860
+    environment:
+      ENSURE_SCM_INITIALIZED: /data/metadata/scm/current/VERSION
+      OZONE-SITE.XML_hdds.scm.safemode.min.datanode: ${OZONE_SAFEMODE_MIN_DATANODES:-1}
+      OZONE_OPTS:
+      <<: *replication
+    command: ["ozone","scm"]
+    networks:
+      - ozone
+
+  # Ozone OM
+  om:
+    <<: *common-config
+    container_name: om
+    hostname: om
+    environment:
+      ENSURE_OM_INITIALIZED: /data/metadata/om/current/VERSION
+      OZONE_OPTS:
+      <<: *replication
+    ports:
+      - 9874:9874
+      - 9862:9862
+    command: ["ozone","om"]
+    depends_on:
+      - scm
+    networks:
+      - ozone
+
+  # Ozone Datanode
+  datanode:
+    <<: *common-config
+    container_name: datanode
+    hostname: datanode
+    ports:
+      - 19864:19864
+      - 9882:9882
+    environment:
+      <<: *replication
+      OZONE_OPTS:
+    command: ["ozone","datanode"]
+    depends_on:
+      - scm
+      - om
+    networks:
+      - ozone
+
+  # S3 Gateway with STS enabled
+  s3g:
+    <<: *common-config
+    container_name: s3g
+    hostname: s3g
+    environment:
+      OZONE_OPTS:
+      <<: *replication
+    ports:
+      - 9878:9878
+      - 19878:19878
+    command: ["ozone","s3g"]
+    depends_on:
+      - scm
+      - om
+      - datanode
+      - keycloak
+    networks:
+      - ozone
+
+  # Recon
+  recon:
+    <<: *common-config
+    container_name: recon
+    hostname: recon
+    ports:
+      - 9888:9888
+    environment:
+      OZONE_OPTS:
+      <<: *replication
+    command: ["ozone","recon"]
+    depends_on:
+      - scm
+      - om
+    networks:
+      - ozone
+
+networks:
+  ozone:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  keycloak_data:
+

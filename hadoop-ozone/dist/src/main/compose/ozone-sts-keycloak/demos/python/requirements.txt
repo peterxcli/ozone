@@ -1,0 +1,24 @@
+# Python dependencies for Ozone STS Keycloak demo
+
+# AWS SDK for S3 operations
+boto3>=1.28.0
+
+# HTTP requests library
+requests>=2.31.0
+
+# Keycloak Python client
+python-keycloak>=3.7.0
+
+# XML parsing
+lxml>=4.9.0
+
+# Pretty printing and formatting
+tabulate>=0.9.0
+
+# Date/time handling
+python-dateutil>=2.8.0
+
+# JSON Web Token handling
+PyJWT>=2.8.0
+cryptography>=41.0.0
+

@@ -1,0 +1,319 @@
+# Role Mappings: Keycloak → Ozone S3 Permissions
+#
+# This file documents the mapping between Keycloak roles/groups
+# and Ozone S3 permissions in the STS demo.
+
+---
+# Keycloak Realm Configuration
+realm:
+  name: ozone
+  description: Ozone STS demo realm
+  token_lifespan: 300  # 5 minutes
+
+# Client Configuration
+client:
+  id: ozone-s3
+  type: public
+  direct_access_grants_enabled: true
+
+# Role Definitions
+roles:
+  - name: s3-admin
+    description: Administrative access to S3 resources
+    permissions:
+      buckets:
+        - create
+        - delete
+        - list
+        - get_acl
+        - set_acl
+      objects:
+        - read
+        - write
+        - delete
+        - list
+        - get_acl
+        - set_acl
+    ozone_acls:
+      - ALL  # Full access to all operations
+    
+  - name: s3-full-access
+    description: Full read/write access to S3 objects
+    permissions:
+      buckets:
+        - list
+      objects:
+        - read
+        - write
+        - delete
+        - list
+    ozone_acls:
+      - READ
+      - WRITE
+      - DELETE
+      - LIST
+    
+  - name: s3-read-only
+    description: Read-only access to S3 objects
+    permissions:
+      buckets:
+        - list
+      objects:
+        - read
+        - list
+    ozone_acls:
+      - READ
+      - LIST
+    
+  - name: s3-write-only
+    description: Write-only access to S3 objects
+    permissions:
+      buckets: []
+      objects:
+        - write
+    ozone_acls:
+      - WRITE
+
+# Group Definitions
+groups:
+  - name: admins
+    path: /admins
+    roles:
+      - s3-admin
+      - s3-full-access
+    description: Administrator group with full access
+    
+  - name: developers
+    path: /developers
+    roles:
+      - s3-full-access
+    description: Developer group with read/write access
+    
+  - name: auditors
+    path: /auditors
+    roles:
+      - s3-read-only
+    description: Auditor group with read-only access
+
+# User Definitions
+users:
+  - username: admin
+    email: admin@ozone.example.com
+    password: admin123
+    groups:
+      - /admins
+    roles:
+      - s3-admin
+      - s3-full-access
+    permissions_summary: Full access to all S3 operations
+    
+  - username: developer
+    email: developer@ozone.example.com
+    password: dev123
+    groups:
+      - /developers
+    roles:
+      - s3-full-access
+    permissions_summary: Read/write access to objects, cannot manage buckets
+    
+  - username: auditor
+    email: auditor@ozone.example.com
+    password: audit123
+    groups:
+      - /auditors
+    roles:
+      - s3-read-only
+    permissions_summary: Read-only access to objects
+
+# Permission Matrix
+permission_matrix:
+  operations:
+    # Bucket Operations
+    - operation: CreateBucket
+      s3-admin: ALLOW
+      s3-full-access: DENY
+      s3-read-only: DENY
+      s3-write-only: DENY
+      
+    - operation: DeleteBucket
+      s3-admin: ALLOW
+      s3-full-access: DENY
+      s3-read-only: DENY
+      s3-write-only: DENY
+      
+    - operation: ListBuckets
+      s3-admin: ALLOW
+      s3-full-access: ALLOW
+      s3-read-only: ALLOW
+      s3-write-only: DENY
+      
+    - operation: GetBucketAcl
+      s3-admin: ALLOW
+      s3-full-access: DENY
+      s3-read-only: DENY
+      s3-write-only: DENY
+      
+    - operation: SetBucketAcl
+      s3-admin: ALLOW
+      s3-full-access: DENY
+      s3-read-only: DENY
+      s3-write-only: DENY
+      
+    # Object Operations
+    - operation: PutObject
+      s3-admin: ALLOW
+      s3-full-access: ALLOW
+      s3-read-only: DENY
+      s3-write-only: ALLOW
+      
+    - operation: GetObject
+      s3-admin: ALLOW
+      s3-full-access: ALLOW
+      s3-read-only: ALLOW
+      s3-write-only: DENY
+      
+    - operation: DeleteObject
+      s3-admin: ALLOW
+      s3-full-access: ALLOW
+      s3-read-only: DENY
+      s3-write-only: DENY
+      
+    - operation: ListObjects
+      s3-admin: ALLOW
+      s3-full-access: ALLOW
+      s3-read-only: ALLOW
+      s3-write-only: DENY
+      
+    - operation: GetObjectAcl
+      s3-admin: ALLOW
+      s3-full-access: DENY
+      s3-read-only: DENY
+      s3-write-only: DENY
+      
+    - operation: SetObjectAcl
+      s3-admin: ALLOW
+      s3-full-access: DENY
+      s3-read-only: DENY
+      s3-write-only: DENY
+
+# JWT Token Claims Mapping
+jwt_claims_mapping:
+  # Standard OIDC claims
+  subject: sub                    # User unique identifier
+  username: preferred_username    # User's username
+  email: email                    # User's email address
+  
+  # Custom claims
+  groups: groups                  # User's groups (array)
+  roles: roles                    # User's roles (array)
+  
+  # Token metadata
+  issuer: iss                     # Token issuer
+  audience: aud                   # Intended audience
+  issued_at: iat                  # Issued at timestamp
+  expires_at: exp                 # Expiration timestamp
+  
+  # Optional claims
+  name: name                      # User's full name
+  given_name: given_name          # First name
+  family_name: family_name        # Last name
+  email_verified: email_verified  # Email verification status
+
+# STS Credential Mapping
+sts_credential_mapping:
+  # How JWT claims map to STS credentials
+  principal: preferred_username   # Used as credential principal
+  
+  # Attributes passed to credential generator
+  attributes:
+    - source: email
+      target: user_email
+    - source: groups
+      target: user_groups
+    - source: roles
+      target: user_roles
+    - source: name
+      target: user_full_name
+
+# Resource ACL Examples
+resource_acl_examples:
+  # Example 1: Admin bucket - only admins can access
+  - resource: /s3v/admin-bucket
+    acls:
+      - user: admin
+        type: USER
+        permissions: ALL
+      - group: /admins
+        type: GROUP
+        permissions: ALL
+        
+  # Example 2: Dev bucket - developers can read/write
+  - resource: /s3v/dev-bucket
+    acls:
+      - group: /developers
+        type: GROUP
+        permissions: READ,WRITE,DELETE,LIST
+      - group: /auditors
+        type: GROUP
+        permissions: READ,LIST
+        
+  # Example 3: Shared bucket - different access levels
+  - resource: /s3v/shared-bucket
+    acls:
+      - group: /admins
+        type: GROUP
+        permissions: ALL
+      - group: /developers
+        type: GROUP
+        permissions: READ,WRITE,DELETE,LIST
+      - group: /auditors
+        type: GROUP
+        permissions: READ,LIST
+
+# Integration Notes
+integration_notes:
+  keycloak_to_sts:
+    - "Keycloak generates JWT tokens with user claims"
+    - "STS validates JWT using JWKS endpoint"
+    - "STS extracts roles/groups from JWT claims"
+    - "STS generates temporary S3 credentials with embedded user info"
+  
+  sts_to_s3:
+    - "S3 API validates session token"
+    - "S3 API extracts user/role information"
+    - "S3 API checks permissions against requested operation"
+    - "S3 API enforces resource ACLs"
+  
+  authorization_flow:
+    - "Token validation (signature, expiration)"
+    - "User identity extraction"
+    - "Role/group resolution"
+    - "Permission lookup"
+    - "Resource ACL check"
+    - "Final allow/deny decision"
+
+# Extension Points
+extension_points:
+  custom_roles:
+    description: "Add custom roles in keycloak-realm.json"
+    example:
+      name: data-scientist
+      permissions:
+        - read_from_ml_buckets
+        - write_to_results_bucket
+        
+  custom_claims:
+    description: "Add custom JWT claims via Keycloak mappers"
+    example:
+      mapper_type: "User Attribute"
+      claim_name: "department"
+      user_attribute: "department"
+      
+  external_authorization:
+    description: "Integrate with Ranger for fine-grained policies"
+    integration: "Configure Ranger plugin in Ozone"
+    
+  multi_tenancy:
+    description: "Separate realms per tenant in Keycloak"
+    configuration: "Multiple issuer URLs in STS config"
+
