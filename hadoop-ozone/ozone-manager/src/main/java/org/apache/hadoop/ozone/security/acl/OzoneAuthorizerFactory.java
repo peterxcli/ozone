@@ -86,22 +86,40 @@ public final class OzoneAuthorizerFactory {
       return new OzoneNativeAuthorizer().configure(om, km, pm);
     }
 
-    final IAccessAuthorizer authorizer = newInstance(clazz, conf);
+    final IAccessAuthorizer constructed = newInstance(clazz, conf);
 
-    if (authorizer instanceof OzoneManagerAuthorizer) {
-      return ((OzoneManagerAuthorizer) authorizer).configure(om, km, pm);
+    // First, configure if it supports OM-specific configuration, capturing
+    // any new instance that configure(...) may return.
+    IAccessAuthorizer configured = constructed;
+    if (constructed instanceof OzoneManagerAuthorizer) {
+      configured = ((OzoneManagerAuthorizer) constructed).configure(om, km, pm);
     }
 
-    // If authorizer isn't native and shareable tmp dir is enabled,
-    // then return the shared tmp hybrid authorizer.
+    // Start plugin lifecycle AFTER configuration (on the configured instance)
+    // so any new instance returned by configure(...) is initialized.
+    if (configured instanceof IAccessAuthorizerPlugin) {
+      try {
+        ((IAccessAuthorizerPlugin) configured).start(conf);
+        LOG.info("Started authorizer plugin: {}", configured.getClass().getName());
+      } catch (Exception e) {
+        LOG.error("Failed to start authorizer plugin", e);
+        throw new RuntimeException("Failed to start authorizer plugin: " +
+            configured.getClass().getName(), e);
+      }
+    }
+
+    // If authorizer isn't native and shareable tmp dir is enabled, wrap now.
+    IAccessAuthorizer effective = configured;
     if (conf.getBoolean(OZONE_OM_ENABLE_OFS_SHARED_TMP_DIR,
         OZONE_OM_ENABLE_OFS_SHARED_TMP_DIR_DEFAULT)) {
-      return new SharedTmpDirAuthorizer(
-          new OzoneNativeAuthorizer().configure(om, km, pm),
-          authorizer);
+      if (!configured.isNative()) {
+        effective = new SharedTmpDirAuthorizer(
+            new OzoneNativeAuthorizer().configure(om, km, pm),
+            configured);
+      }
     }
 
-    return authorizer;
+    return effective;
   }
 
   private static Class<? extends IAccessAuthorizer> authorizerClass(
@@ -112,3 +130,4 @@ public final class OzoneAuthorizerFactory {
   }
 
 }
+
