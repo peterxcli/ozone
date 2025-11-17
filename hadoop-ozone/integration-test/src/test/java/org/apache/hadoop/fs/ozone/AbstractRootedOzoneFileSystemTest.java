@@ -74,6 +74,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
+import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -81,6 +82,7 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.InvalidPathException;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathIsNotEmptyDirectoryException;
 import org.apache.hadoop.fs.RemoteIterator;
@@ -2207,6 +2209,36 @@ abstract class AbstractRootedOzoneFileSystemTest {
       stream.unbuffer();
     }
 
+  }
+
+  @Test
+  void testBlockLocationTopologyPaths() throws Exception {
+    String data = RandomStringUtils.secure().nextAlphanumeric(100);
+    Path path = new Path(bucketPath, "testTopology");
+    try (FSDataOutputStream stream = fs.create(path)) {
+      stream.writeBytes(data);
+    }
+
+    FileStatus status = fs.getFileStatus(path);
+    assertTrue(status instanceof LocatedFileStatus);
+    LocatedFileStatus locatedFileStatus = (LocatedFileStatus) status;
+    BlockLocation[] blockLocations = locatedFileStatus.getBlockLocations();
+
+    assertThat(blockLocations.length).isGreaterThanOrEqualTo(1);
+
+    for (BlockLocation blockLocation : blockLocations) {
+      String[] topologyPaths = blockLocation.getTopologyPaths();
+      assertNotNull(topologyPaths, "topologyPaths should not be null");
+      assertThat(topologyPaths.length).isGreaterThanOrEqualTo(1);
+
+      // Verify topology paths array matches hosts and names arrays
+      assertEquals(blockLocation.getHosts().length, topologyPaths.length);
+      assertEquals(blockLocation.getNames().length, topologyPaths.length);
+
+      for (String topologyPath : topologyPaths) {
+        assertNotNull(topologyPath, "individual topology path should not be null");
+      }
+    }
   }
 
   @Test
