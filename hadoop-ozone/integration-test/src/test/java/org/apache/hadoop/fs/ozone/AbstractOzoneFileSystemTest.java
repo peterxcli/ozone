@@ -2228,6 +2228,66 @@ abstract class AbstractOzoneFileSystemTest {
   }
 
   @Test
+  void testBlockLocationTopologyPaths() throws Exception {
+    String data = RandomStringUtils.secure().nextAlphanumeric(100);
+    String filePath = RandomStringUtils.secure().nextAlphanumeric(5);
+    Path path = createPath("/" + filePath);
+    try (FSDataOutputStream stream = fs.create(path)) {
+      stream.writeBytes(data);
+    }
+
+    FileStatus status = fs.getFileStatus(path);
+    LocatedFileStatus locatedFileStatus = assertInstanceOf(LocatedFileStatus.class, status);
+    BlockLocation[] blockLocations = locatedFileStatus.getBlockLocations();
+
+    assertThat(blockLocations.length).isGreaterThanOrEqualTo(1);
+
+    for (BlockLocation blockLocation : blockLocations) {
+      String[] topologyPaths = blockLocation.getTopologyPaths();
+      assertNotNull(topologyPaths, "topologyPaths should not be null");
+      assertThat(topologyPaths.length).isGreaterThanOrEqualTo(1);
+
+      // Verify topology paths have the same length as hosts and names
+      assertEquals(blockLocation.getHosts().length, topologyPaths.length);
+      assertEquals(blockLocation.getNames().length, topologyPaths.length);
+
+      // Verify each topology path is not null
+      for (String topologyPath : topologyPaths) {
+        assertNotNull(topologyPath, "individual topology path should not be null");
+      }
+    }
+  }
+
+  @Test
+  void testBlockLocationTopologyPathsMultiBlock() throws Exception {
+    int blockSize = (int) fs.getConf().getStorageSize(
+        OzoneConfigKeys.OZONE_SCM_BLOCK_SIZE,
+        OzoneConfigKeys.OZONE_SCM_BLOCK_SIZE_DEFAULT,
+        StorageUnit.BYTES
+    );
+    String data = RandomStringUtils.secure().nextAlphanumeric(2 * blockSize + 100);
+    String filePath = RandomStringUtils.secure().nextAlphanumeric(5);
+    Path path = createPath("/" + filePath);
+    try (FSDataOutputStream stream = fs.create(path)) {
+      stream.writeBytes(data);
+    }
+
+    FileStatus status = fs.getFileStatus(path);
+    LocatedFileStatus locatedFileStatus = assertInstanceOf(LocatedFileStatus.class, status);
+    BlockLocation[] blockLocations = locatedFileStatus.getBlockLocations();
+
+    assertThat(blockLocations.length).isGreaterThanOrEqualTo(2);
+
+    // Verify all blocks have topology information
+    for (BlockLocation blockLocation : blockLocations) {
+      String[] topologyPaths = blockLocation.getTopologyPaths();
+      assertNotNull(topologyPaths);
+      assertThat(topologyPaths.length).isGreaterThanOrEqualTo(1);
+      assertEquals(blockLocation.getHosts().length, topologyPaths.length);
+    }
+  }
+
+  @Test
   void testPathToKey() {
     assumeFalse(FILE_SYSTEM_OPTIMIZED.equals(getBucketLayout()));
 
