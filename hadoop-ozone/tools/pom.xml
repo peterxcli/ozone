@@ -170,6 +170,10 @@
     </dependency>
     <dependency>
       <groupId>org.apache.ozone</groupId>
+      <artifactId>ozone-s3gateway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.ozone</groupId>
       <artifactId>rocksdb-checkpoint-differ</artifactId>
     </dependency>
     <dependency>
