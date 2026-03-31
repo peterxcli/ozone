@@ -56,10 +56,12 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.apache.hadoop.hdds.client.ReplicationFactor;
 import org.apache.hadoop.hdds.client.ReplicationType;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
@@ -94,6 +96,9 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
       return preparedConfiguration;
     }
 
+    if (config.getFormatMode() == LocalOzoneClusterConfig.FormatMode.ALWAYS) {
+      deleteDirectory(config.getDataDir());
+    }
     Files.createDirectories(config.getDataDir());
 
     OzoneConfiguration conf = new OzoneConfiguration(seedConfiguration);
@@ -203,10 +208,29 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
 
   @Override
   public void close() {
+    if (config.isEphemeral()) {
+      try {
+        deleteDirectory(config.getDataDir());
+      } catch (IOException ex) {
+        throw new IllegalStateException("Failed to delete ephemeral local "
+            + "Ozone data dir " + config.getDataDir(), ex);
+      }
+    }
   }
 
   private Path createDirectory(String name) throws IOException {
     return Files.createDirectories(config.getDataDir().resolve(name));
+  }
+
+  private static void deleteDirectory(Path directory) throws IOException {
+    if (!Files.exists(directory)) {
+      return;
+    }
+    try (Stream<Path> paths = Files.walk(directory)) {
+      for (Path path : (Iterable<Path>) paths.sorted(Comparator.reverseOrder())::iterator) {
+        Files.deleteIfExists(path);
+      }
+    }
   }
 
   private int reservePort(PortAllocator allocator, PersistedPorts persistedPorts,

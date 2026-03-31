@@ -25,9 +25,12 @@ import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTPS_ADD
 import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTP_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTPS_ADDRESS_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.junit.jupiter.api.Test;
@@ -91,6 +94,46 @@ class TestLocalOzoneCluster {
       assertNotEquals(httpsPort, webHttpsPort);
       assertNotEquals(webHttpPort, webHttpsPort);
     }
+  }
+
+  @Test
+  void prepareConfigurationClearsExistingStateForFormatAlways()
+      throws Exception {
+    Path dataDir = tempDir.resolve("local-ozone");
+    Files.createDirectories(dataDir);
+    Files.write(dataDir.resolve("marker.txt"),
+        "stale".getBytes(StandardCharsets.UTF_8));
+
+    LocalOzoneClusterConfig config = LocalOzoneClusterConfig.builder(dataDir)
+        .setFormatMode(LocalOzoneClusterConfig.FormatMode.ALWAYS)
+        .build();
+
+    try (LocalOzoneCluster cluster =
+             new LocalOzoneCluster(config, new OzoneConfiguration())) {
+      cluster.prepareConfiguration();
+    }
+
+    assertFalse(Files.exists(dataDir.resolve("marker.txt")));
+    assertTrue(Files.isDirectory(dataDir.resolve("metadata")));
+  }
+
+  @Test
+  void closeDeletesEphemeralDataDir() throws Exception {
+    Path dataDir = tempDir.resolve("ephemeral-local-ozone");
+    Files.createDirectories(dataDir);
+    Files.write(dataDir.resolve("marker.txt"),
+        "ephemeral".getBytes(StandardCharsets.UTF_8));
+
+    LocalOzoneClusterConfig config = LocalOzoneClusterConfig.builder(dataDir)
+        .setEphemeral(true)
+        .build();
+
+    try (LocalOzoneCluster cluster =
+             new LocalOzoneCluster(config, new OzoneConfiguration())) {
+      cluster.close();
+    }
+
+    assertFalse(Files.exists(dataDir));
   }
 
   private static int parsePort(String address) {
