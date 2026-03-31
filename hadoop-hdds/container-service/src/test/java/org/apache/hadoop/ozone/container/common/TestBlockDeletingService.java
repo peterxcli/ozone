@@ -920,7 +920,8 @@ public class TestBlockDeletingService {
     timeout  = 0;
     svc = new BlockDeletingService(ozoneContainer,
         TimeUnit.MILLISECONDS.toNanos(1000), timeout, TimeUnit.MILLISECONDS,
-        10, conf, "", mock(ContainerChecksumTreeManager.class), mock(ReconfigurationHandler.class));
+        10, conf, "", null, mock(ContainerChecksumTreeManager.class),
+        mock(ReconfigurationHandler.class));
     svc.start();
 
     // get container meta data

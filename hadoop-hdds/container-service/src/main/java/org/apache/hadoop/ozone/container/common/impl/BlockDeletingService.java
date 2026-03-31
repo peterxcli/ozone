@@ -80,14 +80,15 @@ public class BlockDeletingService extends BackgroundService {
       OzoneContainer ozoneContainer, long serviceInterval, long serviceTimeout,
       TimeUnit timeUnit, int workerSize, ConfigurationSource conf, ContainerChecksumTreeManager checksumTreeManager) {
     this(ozoneContainer, serviceInterval, serviceTimeout, timeUnit, workerSize,
-        conf, "", checksumTreeManager, null);
+        conf, "", null, checksumTreeManager, null);
   }
 
   @SuppressWarnings("checkstyle:parameternumber")
   public BlockDeletingService(
       OzoneContainer ozoneContainer, long serviceInterval, long serviceTimeout,
       TimeUnit timeUnit, int workerSize, ConfigurationSource conf,
-      String threadNamePrefix, ContainerChecksumTreeManager checksumTreeManager,
+      String threadNamePrefix, String metricsSourceComponent,
+      ContainerChecksumTreeManager checksumTreeManager,
       ReconfigurationHandler reconfigurationHandler
   ) {
     super("BlockDeletingService", serviceInterval, timeUnit,
@@ -110,7 +111,9 @@ public class BlockDeletingService extends BackgroundService {
     }
     this.blockDeletingMaxLockHoldingTime =
         dnConf.getBlockDeletingMaxLockHoldingTime();
-    metrics = BlockDeletingServiceMetrics.create();
+    metrics = metricsSourceComponent == null
+        ? BlockDeletingServiceMetrics.create()
+        : BlockDeletingServiceMetrics.create(metricsSourceComponent);
   }
 
   public void registerReconfigCallbacks(ReconfigurationHandler handler) {
@@ -318,6 +321,14 @@ public class BlockDeletingService extends BackgroundService {
 
   public int getBlockLimitPerInterval() {
     return dnConf.getBlockDeletionLimit();
+  }
+
+  @Override
+  public synchronized void shutdown() {
+    super.shutdown();
+    if (metrics != null) {
+      metrics.unregister();
+    }
   }
 
   private static class BlockDeletingTaskBuilder {

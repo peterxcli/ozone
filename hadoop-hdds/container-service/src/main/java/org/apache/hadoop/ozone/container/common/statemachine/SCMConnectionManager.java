@@ -35,6 +35,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.management.ObjectName;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdds.HddsUtils;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.utils.LegacyHadoopConfigurationSource;
 import org.apache.hadoop.io.IOUtils;
@@ -69,14 +70,25 @@ public class SCMConnectionManager
   private ObjectName jmxBean;
 
   public SCMConnectionManager(ConfigurationSource conf) {
+    this(conf, null);
+  }
+
+  public SCMConnectionManager(ConfigurationSource conf, String component) {
     this.mapLock = new ReentrantReadWriteLock();
     Long timeOut = getScmRpcTimeOutInMilliseconds(conf);
     this.rpcTimeout = timeOut.intValue();
     this.scmMachines = new HashMap<>();
     this.conf = conf;
-    jmxBean = MBeans.register("HddsDatanode",
-        "SCMConnectionManager",
-        this);
+    if (component == null || component.isEmpty()) {
+      jmxBean = MBeans.register("HddsDatanode",
+          "SCMConnectionManager",
+          this);
+    } else {
+      Map<String, String> jmxProperties = new HashMap<>();
+      jmxProperties.put("datanode", component);
+      jmxBean = HddsUtils.registerWithJmxProperties("HddsDatanode",
+          "SCMConnectionManager", jmxProperties, this);
+    }
   }
 
   /**
