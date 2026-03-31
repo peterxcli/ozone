@@ -17,8 +17,17 @@
 
 package org.apache.hadoop.ozone.local;
 
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_DATANODE_CLIENT_ADDRESS_KEY;
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_DATANODE_CLIENT_BIND_HOST_KEY;
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_DATANODE_HTTP_ADDRESS_KEY;
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_DATANODE_HTTP_BIND_HOST_KEY;
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_INITIAL_HEARTBEAT_INTERVAL;
+import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_RECON_INITIAL_HEARTBEAT_INTERVAL;
 import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_SCM_SAFEMODE_MIN_DATANODE;
 import static org.apache.hadoop.hdds.HddsConfigKeys.HDDS_SCM_SAFEMODE_PIPELINE_CREATION;
+import static org.apache.hadoop.hdds.protocol.proto.HddsProtos.NodeState.HEALTHY;
+import static org.apache.hadoop.hdds.scm.ScmConfigKeys.HDDS_CONTAINER_RATIS_ENABLED_KEY;
+import static org.apache.hadoop.hdds.scm.ScmConfigKeys.HDDS_DATANODE_DIR_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_BLOCK_CLIENT_ADDRESS_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_BLOCK_CLIENT_BIND_HOST_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_CLIENT_ADDRESS_KEY;
@@ -26,29 +35,33 @@ import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_CLIENT_BIND_HOS
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_DATANODE_ADDRESS_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_DATANODE_BIND_HOST_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_GRPC_PORT_KEY;
+import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_HA_RATIS_SERVER_RPC_FIRST_ELECTION_TIMEOUT;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_HTTP_ADDRESS_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_HTTP_BIND_HOST_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_NAMES;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_RATIS_PORT_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_SECURITY_SERVICE_ADDRESS_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_SECURITY_SERVICE_BIND_HOST_KEY;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_CONTAINER_IPC_PORT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_CONTAINER_RATIS_ADMIN_PORT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_CONTAINER_RATIS_DATASTREAM_PORT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_CONTAINER_RATIS_DATANODE_STORAGE_DIR;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_CONTAINER_RATIS_IPC_PORT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_CONTAINER_RATIS_SERVER_PORT;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.HDDS_RATIS_LEADER_FIRST_ELECTION_MINIMUM_TIMEOUT_DURATION_KEY;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_METADATA_DIRS;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_REPLICATION;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_REPLICATION_TYPE;
+import static org.apache.hadoop.ozone.common.Storage.StorageState.INITIALIZED;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_HTTP_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_HTTP_BIND_HOST_KEY;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_HTTPS_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_HTTPS_BIND_HOST_KEY;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RATIS_MINIMUM_TIMEOUT_KEY;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RATIS_PORT_KEY;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SERVER_DEFAULT_REPLICATION_KEY;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTP_ADDRESS_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTP_BIND_HOST_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTPS_ADDRESS_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTPS_BIND_HOST_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTP_ADDRESS_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTP_BIND_HOST_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTPS_ADDRESS_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTPS_BIND_HOST_KEY;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -56,28 +69,52 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
+import org.apache.hadoop.hdds.HddsConfigKeys;
 import org.apache.hadoop.hdds.client.ReplicationFactor;
 import org.apache.hadoop.hdds.client.ReplicationType;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
+import org.apache.hadoop.hdds.scm.ha.SCMHANodeDetails;
+import org.apache.hadoop.hdds.scm.ha.SCMRatisServerImpl;
+import org.apache.hadoop.hdds.scm.proxy.SCMClientConfig;
+import org.apache.hadoop.hdds.scm.server.SCMStorageConfig;
+import org.apache.hadoop.hdds.scm.server.StorageContainerManager;
+import org.apache.hadoop.ozone.HddsDatanodeService;
+import org.apache.hadoop.ozone.OzoneSecurityUtil;
+import org.apache.hadoop.ozone.container.replication.ReplicationServer;
+import org.apache.hadoop.ozone.local.LocalOzoneClusterConfig.FormatMode;
+import org.apache.hadoop.ozone.om.OMStorage;
+import org.apache.hadoop.ozone.om.OzoneManager;
 
 /**
- * Prepares a local single-node Ozone runtime configuration.
+ * Starts a small in-process local Ozone runtime.
  */
 public final class LocalOzoneCluster implements LocalOzoneRuntime {
 
+  private static final String[] NO_ARGS = new String[0];
   private static final String PORTS_STATE_FILE = "ports.properties";
 
   private final LocalOzoneClusterConfig config;
   private final OzoneConfiguration seedConfiguration;
+  private final AtomicBoolean closed = new AtomicBoolean();
+  private final List<HddsDatanodeService> datanodes = new ArrayList<>();
 
   private PreparedConfiguration preparedConfiguration;
+  private StorageContainerManager scm;
+  private OzoneManager om;
 
   public LocalOzoneCluster(LocalOzoneClusterConfig config,
       OzoneConfiguration seedConfiguration) {
@@ -88,7 +125,17 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
 
   @Override
   public void start() throws Exception {
-    prepareConfiguration();
+    preparedConfiguration = prepareConfiguration();
+    initializeStorage(preparedConfiguration.getConfiguration());
+
+    scm = StorageContainerManager.createSCM(preparedConfiguration.getConfiguration());
+    scm.start();
+
+    om = OzoneManager.createOm(preparedConfiguration.getConfiguration());
+    om.start();
+
+    startDatanodes(preparedConfiguration.getConfiguration());
+    waitForClusterToBeReady(config.getStartupTimeout());
   }
 
   PreparedConfiguration prepareConfiguration() throws IOException {
@@ -96,7 +143,7 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
       return preparedConfiguration;
     }
 
-    if (config.getFormatMode() == LocalOzoneClusterConfig.FormatMode.ALWAYS) {
+    if (config.getFormatMode() == FormatMode.ALWAYS) {
       deleteDirectory(config.getDataDir());
     }
     Files.createDirectories(config.getDataDir());
@@ -108,22 +155,42 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     conf.set(OZONE_SERVER_DEFAULT_REPLICATION_KEY, ReplicationFactor.ONE.name());
     conf.set(OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY,
         ReplicationType.STAND_ALONE.name());
-    conf.setBoolean(ScmConfigKeys.HDDS_CONTAINER_RATIS_ENABLED_KEY, false);
+    conf.setBoolean(HDDS_CONTAINER_RATIS_ENABLED_KEY, false);
     conf.setBoolean(HDDS_SCM_SAFEMODE_PIPELINE_CREATION, false);
     conf.setInt(HDDS_SCM_SAFEMODE_MIN_DATANODE, Math.max(1, config.getDatanodes()));
+    conf.set(HddsConfigKeys.HDDS_SCM_WAIT_TIME_AFTER_SAFE_MODE_EXIT, "3s");
+    conf.set(OZONE_SCM_HA_RATIS_SERVER_RPC_FIRST_ELECTION_TIMEOUT, "1s");
+    conf.setTimeDuration(OZONE_OM_RATIS_MINIMUM_TIMEOUT_KEY, 1,
+        TimeUnit.SECONDS);
+    conf.set(HDDS_INITIAL_HEARTBEAT_INTERVAL, "500ms");
+    conf.set(HDDS_RECON_INITIAL_HEARTBEAT_INTERVAL, "500ms");
+    conf.set(HDDS_RATIS_LEADER_FIRST_ELECTION_MINIMUM_TIMEOUT_DURATION_KEY,
+        "1s");
+
+    SCMClientConfig scmClientConfig = conf.getObject(SCMClientConfig.class);
+    scmClientConfig.setMaxRetryTimeout(30_000);
+    conf.setFromObject(scmClientConfig);
 
     PersistedPorts persistedPorts = PersistedPorts.load(
         config.getDataDir().resolve(PORTS_STATE_FILE));
     PortAllocator ports = new PortAllocator();
     int scmClientPort = reservePort(ports, persistedPorts,
         "scm.client", config.getScmPort());
-    int scmBlockPort = reservePort(ports, persistedPorts, "scm.block", 0);
-    int scmDatanodePort = reservePort(ports, persistedPorts, "scm.datanode", 0);
-    int scmSecurityPort = reservePort(ports, persistedPorts, "scm.security", 0);
-    int scmHttpPort = reservePort(ports, persistedPorts, "scm.http", 0);
-    int scmHttpsPort = reservePort(ports, persistedPorts, "scm.https", 0);
-    int scmRatisPort = reservePort(ports, persistedPorts, "scm.ratis", 0);
-    int scmGrpcPort = reservePort(ports, persistedPorts, "scm.grpc", 0);
+    int scmBlockPort = reservePort(ports, persistedPorts,
+        "scm.block", 0);
+    int scmDatanodePort = reservePort(ports, persistedPorts,
+        "scm.datanode", 0);
+    int scmSecurityPort = reservePort(ports, persistedPorts,
+        "scm.security", 0);
+    int scmHttpPort = reservePort(ports, persistedPorts,
+        "scm.http", 0);
+    int scmHttpsPort = reservePort(ports, persistedPorts,
+        "scm.https", 0);
+    int scmRatisPort = reservePort(ports, persistedPorts,
+        "scm.ratis", 0);
+    int scmGrpcPort = reservePort(ports, persistedPorts,
+        "scm.grpc", 0);
+
     conf.set(OZONE_SCM_CLIENT_ADDRESS_KEY, address(config.getHost(), scmClientPort));
     conf.set(OZONE_SCM_CLIENT_BIND_HOST_KEY, config.getBindHost());
     conf.set(OZONE_SCM_BLOCK_CLIENT_ADDRESS_KEY,
@@ -144,70 +211,77 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     conf.setInt(OZONE_SCM_GRPC_PORT_KEY, scmGrpcPort);
     conf.setStrings(OZONE_SCM_NAMES, address(config.getHost(), scmDatanodePort));
 
-    int omRpcPort = reservePort(ports, persistedPorts, "om.rpc", config.getOmPort());
-    int omHttpPort = reservePort(ports, persistedPorts, "om.http", 0);
-    int omRatisPort = reservePort(ports, persistedPorts, "om.ratis", 0);
+    int omRpcPort = reservePort(ports, persistedPorts,
+        "om.rpc", config.getOmPort());
+    int omHttpPort = reservePort(ports, persistedPorts,
+        "om.http", 0);
+    int omHttpsPort = reservePort(ports, persistedPorts,
+        "om.https", 0);
+    int omRatisPort = reservePort(ports, persistedPorts,
+        "om.ratis", 0);
     conf.set(OZONE_OM_ADDRESS_KEY, address(config.getHost(), omRpcPort));
     conf.set(OZONE_OM_HTTP_ADDRESS_KEY, address(config.getHost(), omHttpPort));
     conf.set(OZONE_OM_HTTP_BIND_HOST_KEY, config.getBindHost());
+    conf.set(OZONE_OM_HTTPS_ADDRESS_KEY,
+        address(config.getHost(), omHttpsPort));
+    conf.set(OZONE_OM_HTTPS_BIND_HOST_KEY, config.getBindHost());
     conf.setInt(OZONE_OM_RATIS_PORT_KEY, omRatisPort);
-
-    int s3gPort = -1;
-    if (config.isS3gEnabled()) {
-      s3gPort = reservePort(ports, persistedPorts, "s3g.http", config.getS3gPort());
-      int s3gHttpsPort = reservePort(ports, persistedPorts, "s3g.https", 0);
-      int s3gWebHttpPort = reservePort(ports, persistedPorts, "s3g.web.http", 0);
-      int s3gWebHttpsPort = reservePort(ports, persistedPorts, "s3g.web.https", 0);
-      conf.set(OZONE_S3G_HTTP_ADDRESS_KEY, address(config.getHost(), s3gPort));
-      conf.set(OZONE_S3G_HTTP_BIND_HOST_KEY, config.getBindHost());
-      conf.set(OZONE_S3G_HTTPS_ADDRESS_KEY, address(config.getHost(), s3gHttpsPort));
-      conf.set(OZONE_S3G_HTTPS_BIND_HOST_KEY, config.getBindHost());
-      conf.set(OZONE_S3G_WEBADMIN_HTTP_ADDRESS_KEY,
-          address(config.getHost(), s3gWebHttpPort));
-      conf.set(OZONE_S3G_WEBADMIN_HTTP_BIND_HOST_KEY, config.getBindHost());
-      conf.set(OZONE_S3G_WEBADMIN_HTTPS_ADDRESS_KEY,
-          address(config.getHost(), s3gWebHttpsPort));
-      conf.set(OZONE_S3G_WEBADMIN_HTTPS_BIND_HOST_KEY, config.getBindHost());
-    }
 
     persistedPorts.store();
     preparedConfiguration = new PreparedConfiguration(conf, scmClientPort,
-        omRpcPort, s3gPort);
+        omRpcPort, -1);
     return preparedConfiguration;
   }
 
   @Override
   public int getScmPort() {
-    return preparedConfiguration == null ? config.getScmPort()
+    return scm != null ? scm.getClientRpcAddress().getPort()
         : preparedConfiguration.getScmPort();
   }
 
   @Override
   public int getOmPort() {
-    return preparedConfiguration == null ? config.getOmPort()
+    return om != null ? om.getOmRpcServerAddr().getPort()
         : preparedConfiguration.getOmPort();
   }
 
   @Override
   public int getS3gPort() {
-    return preparedConfiguration == null ? config.getS3gPort()
-        : preparedConfiguration.getS3gPort();
+    return -1;
   }
 
   @Override
   public String getDisplayHost() {
-    return "0.0.0.0".equals(config.getHost())
-        ? LocalOzoneClusterConfig.DEFAULT_HOST : config.getHost();
+    return "0.0.0.0".equals(config.getHost()) ? LocalOzoneClusterConfig.DEFAULT_HOST
+        : config.getHost();
   }
 
   @Override
   public String getS3Endpoint() {
-    return config.isS3gEnabled()
-        ? "http://" + getDisplayHost() + ":" + getS3gPort() : "";
+    return "";
+  }
+
+  int getStartedDatanodeCount() {
+    return datanodes.size();
   }
 
   @Override
   public void close() {
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
+
+    stopDatanodes();
+    stopQuietly(om, manager -> {
+      if (manager.stop()) {
+        manager.join();
+      }
+    });
+    stopQuietly(scm, manager -> {
+      manager.stop();
+      manager.join();
+    });
+
     if (config.isEphemeral()) {
       try {
         deleteDirectory(config.getDataDir());
@@ -216,6 +290,120 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
             + "Ozone data dir " + config.getDataDir(), ex);
       }
     }
+  }
+
+  private void initializeStorage(OzoneConfiguration conf) throws Exception {
+    SCMStorageConfig scmStorage = new SCMStorageConfig(conf);
+    OMStorage omStorage = new OMStorage(conf);
+
+    String clusterId = existingClusterId(scmStorage, omStorage);
+    if (scmStorage.getState() != INITIALIZED) {
+      requireFormatting("SCM");
+      String scmId = UUID.randomUUID().toString();
+      scmStorage.setClusterId(clusterId);
+      scmStorage.setScmId(scmId);
+      scmStorage.initialize();
+      scmStorage.setSCMHAFlag(true);
+      scmStorage.persistCurrentState();
+      SCMRatisServerImpl.initialize(clusterId, scmId,
+          SCMHANodeDetails.loadSCMHAConfig(conf, scmStorage)
+              .getLocalNodeDetails(), conf);
+    }
+
+    if (omStorage.getState() != INITIALIZED) {
+      requireFormatting("OM");
+      omStorage.setClusterId(clusterId);
+      omStorage.setOmId(UUID.randomUUID().toString());
+      if (OzoneSecurityUtil.isSecurityEnabled(conf)) {
+        OzoneManager.initializeSecurity(conf, omStorage, scmStorage.getScmId());
+      }
+      omStorage.initialize();
+    } else if (!clusterId.equals(omStorage.getClusterID())) {
+      throw new IOException("OM metadata belongs to a different cluster ID: "
+          + omStorage.getClusterID());
+    }
+  }
+
+  private void startDatanodes(OzoneConfiguration baseConf) throws IOException {
+    for (int index = 0; index < config.getDatanodes(); index++) {
+      OzoneConfiguration dnConf = new OzoneConfiguration(baseConf);
+      Path datanodeDir = createDirectory("datanode-" + (index + 1));
+      Path metaDir = Files.createDirectories(datanodeDir.resolve("metadata"));
+      dnConf.set(OZONE_METADATA_DIRS, metaDir.toString());
+
+      Path dataDir = Files.createDirectories(datanodeDir.resolve("data-0"));
+      dnConf.set(HDDS_DATANODE_DIR_KEY, dataDir.toString());
+
+      Path ratisDir = Files.createDirectories(datanodeDir.resolve("ratis"));
+      dnConf.set(HDDS_CONTAINER_RATIS_DATANODE_STORAGE_DIR, ratisDir.toString());
+
+      PersistedPorts persistedPorts = PersistedPorts.load(
+          config.getDataDir().resolve(PORTS_STATE_FILE));
+      PortAllocator ports = new PortAllocator();
+      dnConf.set(HDDS_DATANODE_HTTP_ADDRESS_KEY,
+          address(config.getHost(), reservePort(ports, persistedPorts,
+              "dn." + index + ".http", 0)));
+      dnConf.set(HDDS_DATANODE_HTTP_BIND_HOST_KEY, config.getBindHost());
+      dnConf.set(HDDS_DATANODE_CLIENT_ADDRESS_KEY,
+          address(config.getHost(), reservePort(ports, persistedPorts,
+              "dn." + index + ".client", 0)));
+      dnConf.set(HDDS_DATANODE_CLIENT_BIND_HOST_KEY, config.getBindHost());
+      dnConf.setInt(HDDS_CONTAINER_IPC_PORT, reservePort(ports, persistedPorts,
+          "dn." + index + ".container.ipc", 0));
+      dnConf.setInt(HDDS_CONTAINER_RATIS_IPC_PORT,
+          reservePort(ports, persistedPorts, "dn." + index + ".ratis.ipc", 0));
+      dnConf.setInt(HDDS_CONTAINER_RATIS_ADMIN_PORT,
+          reservePort(ports, persistedPorts, "dn." + index + ".ratis.admin",
+              0));
+      dnConf.setInt(HDDS_CONTAINER_RATIS_SERVER_PORT,
+          reservePort(ports, persistedPorts, "dn." + index + ".ratis.server",
+              0));
+      dnConf.setInt(HDDS_CONTAINER_RATIS_DATASTREAM_PORT,
+          reservePort(ports, persistedPorts,
+              "dn." + index + ".ratis.datastream", 0));
+      dnConf.setFromObject(new ReplicationServer.ReplicationConfig()
+          .setPort(reservePort(ports, persistedPorts,
+              "dn." + index + ".replication", 0)));
+      persistedPorts.store();
+
+      HddsDatanodeService datanode = new HddsDatanodeService(NO_ARGS);
+      datanode.setConfiguration(dnConf);
+      datanode.start(dnConf);
+      datanodes.add(datanode);
+    }
+  }
+
+  private void waitForClusterToBeReady(Duration timeout)
+      throws TimeoutException, InterruptedException {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (System.nanoTime() < deadline) {
+      if (scm != null && scm.checkLeader()
+          && scm.getNodeCount(HEALTHY) == datanodes.size()
+          && !scm.isInSafeMode()) {
+        return;
+      }
+      Thread.sleep(1_000L);
+    }
+    throw new TimeoutException("Timed out waiting for local Ozone cluster to "
+        + "become ready after " + timeout);
+  }
+
+  private void requireFormatting(String component) throws IOException {
+    if (config.getFormatMode() == FormatMode.NEVER) {
+      throw new IOException(component + " storage is not initialized under "
+          + config.getDataDir() + ". Use --format if-needed or --format always.");
+    }
+  }
+
+  private String existingClusterId(SCMStorageConfig scmStorage,
+      OMStorage omStorage) {
+    if (scmStorage.getState() == INITIALIZED) {
+      return scmStorage.getClusterID();
+    }
+    if (omStorage.getState() == INITIALIZED) {
+      return omStorage.getClusterID();
+    }
+    return UUID.randomUUID().toString();
   }
 
   private Path createDirectory(String name) throws IOException {
@@ -242,8 +430,34 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     return port;
   }
 
+  private void stopDatanodes() {
+    for (int index = datanodes.size() - 1; index >= 0; index--) {
+      HddsDatanodeService datanode = datanodes.get(index);
+      stopQuietly(datanode, service -> {
+        service.stop();
+        service.join();
+      });
+    }
+    datanodes.clear();
+  }
+
   private static String address(String host, int port) {
     return host + ":" + port;
+  }
+
+  private static <T> void stopQuietly(T service, ThrowingConsumer<T> stopAction) {
+    if (service == null) {
+      return;
+    }
+    try {
+      stopAction.accept(service);
+    } catch (Exception ignored) {
+    }
+  }
+
+  @FunctionalInterface
+  private interface ThrowingConsumer<T> {
+    void accept(T value) throws Exception;
   }
 
   static final class PreparedConfiguration {
