@@ -62,11 +62,21 @@ import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RATIS_MINIMUM_TIM
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_RATIS_PORT_KEY;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SERVER_DEFAULT_REPLICATION_KEY;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTP_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTP_BIND_HOST_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTPS_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTPS_BIND_HOST_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTP_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTP_BIND_HOST_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTPS_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTPS_BIND_HOST_KEY;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.ServerSocket;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -98,11 +108,19 @@ import org.apache.hadoop.ozone.container.replication.ReplicationServer;
 import org.apache.hadoop.ozone.local.LocalOzoneClusterConfig.FormatMode;
 import org.apache.hadoop.ozone.om.OMStorage;
 import org.apache.hadoop.ozone.om.OzoneManager;
+import org.apache.hadoop.ozone.om.helpers.S3SecretValue;
+import org.apache.hadoop.ozone.s3.Gateway;
+import org.apache.hadoop.ozone.s3.OzoneConfigurationHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Starts a small in-process local Ozone runtime.
  */
 public final class LocalOzoneCluster implements LocalOzoneRuntime {
+
+  private static final Logger LOG =
+      LoggerFactory.getLogger(LocalOzoneCluster.class);
 
   private static final String[] NO_ARGS = new String[0];
   private static final String PORTS_STATE_FILE = "ports.properties";
@@ -115,6 +133,7 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
   private PreparedConfiguration preparedConfiguration;
   private StorageContainerManager scm;
   private OzoneManager om;
+  private Gateway s3Gateway;
 
   public LocalOzoneCluster(LocalOzoneClusterConfig config,
       OzoneConfiguration seedConfiguration) {
@@ -136,6 +155,12 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
 
     startDatanodes(preparedConfiguration.getConfiguration());
     waitForClusterToBeReady(config.getStartupTimeout());
+
+    if (config.isS3gEnabled()) {
+      provisionS3Credentials();
+      startS3Gateway(preparedConfiguration.getConfiguration());
+      waitForS3GatewayToBeReady(config.getStartupTimeout());
+    }
   }
 
   PreparedConfiguration prepareConfiguration() throws IOException {
@@ -227,9 +252,34 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     conf.set(OZONE_OM_HTTPS_BIND_HOST_KEY, config.getBindHost());
     conf.setInt(OZONE_OM_RATIS_PORT_KEY, omRatisPort);
 
+    if (config.isS3gEnabled()) {
+      int s3gHttpPort = reservePort(ports, persistedPorts,
+          "s3g.http", config.getS3gPort());
+      int s3gHttpsPort = reservePort(ports, persistedPorts,
+          "s3g.https", 0);
+      int s3gWebHttpPort = reservePort(ports, persistedPorts,
+          "s3g.web.http", 0);
+      int s3gWebHttpsPort = reservePort(ports, persistedPorts,
+          "s3g.web.https", 0);
+      conf.set(OZONE_S3G_HTTP_ADDRESS_KEY, address(config.getHost(),
+          s3gHttpPort));
+      conf.set(OZONE_S3G_HTTP_BIND_HOST_KEY, config.getBindHost());
+      conf.set(OZONE_S3G_HTTPS_ADDRESS_KEY, address(config.getHost(),
+          s3gHttpsPort));
+      conf.set(OZONE_S3G_HTTPS_BIND_HOST_KEY, config.getBindHost());
+      conf.set(OZONE_S3G_WEBADMIN_HTTP_ADDRESS_KEY,
+          address(config.getHost(), s3gWebHttpPort));
+      conf.set(OZONE_S3G_WEBADMIN_HTTP_BIND_HOST_KEY, config.getBindHost());
+      conf.set(OZONE_S3G_WEBADMIN_HTTPS_ADDRESS_KEY,
+          address(config.getHost(), s3gWebHttpsPort));
+      conf.set(OZONE_S3G_WEBADMIN_HTTPS_BIND_HOST_KEY, config.getBindHost());
+      preparedConfiguration = new PreparedConfiguration(conf, scmClientPort,
+          omRpcPort, s3gHttpPort);
+    } else {
+      preparedConfiguration = new PreparedConfiguration(conf, scmClientPort,
+          omRpcPort, -1);
+    }
     persistedPorts.store();
-    preparedConfiguration = new PreparedConfiguration(conf, scmClientPort,
-        omRpcPort, -1);
     return preparedConfiguration;
   }
 
@@ -247,7 +297,11 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
 
   @Override
   public int getS3gPort() {
-    return -1;
+    if (!config.isS3gEnabled()) {
+      return -1;
+    }
+    return s3Gateway != null ? s3Gateway.getHttpAddress().getPort()
+        : preparedConfiguration.getS3gPort();
   }
 
   @Override
@@ -258,7 +312,10 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
 
   @Override
   public String getS3Endpoint() {
-    return "";
+    if (!config.isS3gEnabled()) {
+      return "";
+    }
+    return "http://" + getDisplayHost() + ":" + getS3gPort();
   }
 
   int getStartedDatanodeCount() {
@@ -271,13 +328,15 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
       return;
     }
 
+    OzoneConfigurationHolder.resetConfiguration();
+    stopQuietly(s3Gateway, "S3 gateway", Gateway::stop);
     stopDatanodes();
-    stopQuietly(om, manager -> {
+    stopQuietly(om, "Ozone Manager", manager -> {
       if (manager.stop()) {
         manager.join();
       }
     });
-    stopQuietly(scm, manager -> {
+    stopQuietly(scm, "SCM", manager -> {
       manager.stop();
       manager.join();
     });
@@ -373,6 +432,22 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     }
   }
 
+  private void startS3Gateway(OzoneConfiguration baseConf) throws Exception {
+    OzoneConfigurationHolder.resetConfiguration();
+    OzoneConfigurationHolder.setConfiguration(new OzoneConfiguration(baseConf));
+    s3Gateway = new Gateway();
+    int exitCode = s3Gateway.execute(NO_ARGS);
+    if (exitCode != 0) {
+      throw new IOException("Failed to start local S3 gateway. Exit code="
+          + exitCode);
+    }
+  }
+
+  private void provisionS3Credentials() throws IOException {
+    om.getS3SecretManager().storeSecret(config.getS3AccessKey(),
+        S3SecretValue.of(config.getS3AccessKey(), config.getS3SecretKey()));
+  }
+
   private void waitForClusterToBeReady(Duration timeout)
       throws TimeoutException, InterruptedException {
     long deadline = System.nanoTime() + timeout.toNanos();
@@ -385,6 +460,31 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
       Thread.sleep(1_000L);
     }
     throw new TimeoutException("Timed out waiting for local Ozone cluster to "
+        + "become ready after " + timeout);
+  }
+
+  private void waitForS3GatewayToBeReady(Duration timeout)
+      throws TimeoutException, InterruptedException {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    while (System.nanoTime() < deadline) {
+      HttpURLConnection connection = null;
+      try {
+        connection = (HttpURLConnection) new URL(getS3Endpoint())
+            .openConnection();
+        connection.setConnectTimeout(1_000);
+        connection.setReadTimeout(1_000);
+        connection.setRequestMethod("GET");
+        connection.getResponseCode();
+        return;
+      } catch (IOException ex) {
+        Thread.sleep(1_000L);
+      } finally {
+        if (connection != null) {
+          connection.disconnect();
+        }
+      }
+    }
+    throw new TimeoutException("Timed out waiting for local S3 gateway to "
         + "become ready after " + timeout);
   }
 
@@ -433,7 +533,7 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
   private void stopDatanodes() {
     for (int index = datanodes.size() - 1; index >= 0; index--) {
       HddsDatanodeService datanode = datanodes.get(index);
-      stopQuietly(datanode, service -> {
+      stopQuietly(datanode, "Datanode", service -> {
         service.stop();
         service.join();
       });
@@ -445,13 +545,15 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     return host + ":" + port;
   }
 
-  private static <T> void stopQuietly(T service, ThrowingConsumer<T> stopAction) {
+  private static <T> void stopQuietly(T service, String name,
+      ThrowingConsumer<T> stopAction) {
     if (service == null) {
       return;
     }
     try {
       stopAction.accept(service);
-    } catch (Exception ignored) {
+    } catch (Exception ex) {
+      LOG.warn("Failed to stop {}", name, ex);
     }
   }
 
