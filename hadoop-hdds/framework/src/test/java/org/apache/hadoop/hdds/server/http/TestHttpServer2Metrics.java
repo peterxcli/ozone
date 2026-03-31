@@ -17,6 +17,7 @@
 
 package org.apache.hadoop.hdds.server.http;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.HttpServerIdleThreadCount;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.HttpServerMaxThreadCount;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.HttpServerThreadCount;
@@ -77,15 +78,39 @@ public class TestHttpServer2Metrics {
     // get metrics
     HttpServer2Metrics server2Metrics =
         HttpServer2Metrics.create(threadPool, name);
-    server2Metrics.getMetrics(metricsCollector, true);
+    try {
+      server2Metrics.getMetrics(metricsCollector, true);
 
-    // verify
-    verify(recorder).tag(SERVER_NAME, name);
-    verify(metricsCollector).addRecord(HttpServer2Metrics.SOURCE_NAME);
-    verify(recorder).addGauge(HttpServerThreadCount, threadCount);
-    verify(recorder).addGauge(HttpServerMaxThreadCount, maxThreadCount);
-    verify(recorder).addGauge(HttpServerIdleThreadCount, idleThreadCount);
-    verify(recorder).addGauge(HttpServerThreadQueueWaitingTaskCount,
-        threadQueueWaitingTaskCount);
+      // verify
+      verify(recorder).tag(SERVER_NAME, name);
+      verify(metricsCollector).addRecord(HttpServer2Metrics.SOURCE_NAME);
+      verify(recorder).addGauge(HttpServerThreadCount, threadCount);
+      verify(recorder).addGauge(HttpServerMaxThreadCount, maxThreadCount);
+      verify(recorder).addGauge(HttpServerIdleThreadCount, idleThreadCount);
+      verify(recorder).addGauge(HttpServerThreadQueueWaitingTaskCount,
+          threadQueueWaitingTaskCount);
+    } finally {
+      server2Metrics.unRegister();
+    }
+  }
+
+  @Test
+  public void testDuplicateServerNamesCanCoexist() {
+    QueuedThreadPool firstPool = mock(QueuedThreadPool.class);
+    QueuedThreadPool secondPool = mock(QueuedThreadPool.class);
+
+    HttpServer2Metrics firstMetrics =
+        HttpServer2Metrics.create(firstPool, "hddsDatanode");
+    try {
+      HttpServer2Metrics secondMetrics = assertDoesNotThrow(
+          () -> HttpServer2Metrics.create(secondPool, "hddsDatanode"));
+      try {
+        // registration is the behavior under test
+      } finally {
+        secondMetrics.unRegister();
+      }
+    } finally {
+      firstMetrics.unRegister();
+    }
   }
 }
