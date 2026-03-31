@@ -37,10 +37,13 @@ import org.apache.hadoop.ozone.container.common.statemachine.commandhandler.Comm
 public final class CommandHandlerMetrics implements MetricsSource {
   public static final String SOURCE_NAME = CommandHandlerMetrics.class.getSimpleName();
 
+  private final String sourceName;
   private final Map<Type, CommandHandler> handlerMap;
   private final Map<Type, AtomicInteger> commandCount;
 
-  private CommandHandlerMetrics(Map<Type, CommandHandler> handlerMap) {
+  private CommandHandlerMetrics(Map<Type, CommandHandler> handlerMap,
+      String sourceName) {
+    this.sourceName = sourceName;
     this.handlerMap = handlerMap;
     this.commandCount = new HashMap<>();
     handlerMap.forEach((k, v) -> this.commandCount.put(k, new AtomicInteger()));
@@ -56,9 +59,24 @@ public final class CommandHandlerMetrics implements MetricsSource {
    */
   public static CommandHandlerMetrics create(
       Map<Type, CommandHandler> handlerMap) {
+    return createWithSourceName(handlerMap, SOURCE_NAME);
+  }
+
+  public static CommandHandlerMetrics create(
+      Map<Type, CommandHandler> handlerMap, String component) {
+    return createWithSourceName(handlerMap, buildSourceName(component));
+  }
+
+  private static CommandHandlerMetrics createWithSourceName(
+      Map<Type, CommandHandler> handlerMap, String sourceName) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    return ms.register(SOURCE_NAME, "CommandHandlerMetrics Metrics",
-        new CommandHandlerMetrics(handlerMap));
+    return ms.register(sourceName, "CommandHandlerMetrics Metrics",
+        new CommandHandlerMetrics(handlerMap, sourceName));
+  }
+
+  private static String buildSourceName(String component) {
+    return SOURCE_NAME + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   /**
@@ -74,7 +92,7 @@ public final class CommandHandlerMetrics implements MetricsSource {
   public void getMetrics(MetricsCollector collector, boolean all) {
     for (Map.Entry<Type, CommandHandler> entry : handlerMap.entrySet()) {
       CommandHandler commandHandler = entry.getValue();
-      MetricsRecordBuilder builder = collector.addRecord(SOURCE_NAME)
+      MetricsRecordBuilder builder = collector.addRecord(sourceName)
           .setContext("CommandHandlerMetrics")
           .tag(CommandMetricsMetricsInfo.Command,
               commandHandler.getCommandType().name());
@@ -98,7 +116,7 @@ public final class CommandHandlerMetrics implements MetricsSource {
 
   public void unRegister() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(SOURCE_NAME);
+    ms.unregisterSource(sourceName);
   }
 
   enum CommandMetricsMetricsInfo implements MetricsInfo {
