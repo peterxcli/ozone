@@ -17,11 +17,15 @@
 
 package org.apache.hadoop.ozone.local;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStreamWriter;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collections;
@@ -38,19 +42,12 @@ import picocli.CommandLine.Command;
 class TestOzoneLocal {
 
   @Test
-  void runCommandMetadataIsPresentAndHidden() {
+  void runCommandMetadataIsPresentAndPublic() {
     Command command = OzoneLocal.RunCommand.class.getAnnotation(Command.class);
 
     assertNotNull(command);
     assertEquals("run", command.name());
-    assertTrue(command.hidden());
-  }
-
-  @Test
-  void runCommandIsANoOpPlaceholder() {
-    int exitCode = new CommandLine(new OzoneLocal.RunCommand()).execute();
-
-    assertEquals(0, exitCode);
+    assertFalse(command.hidden());
   }
 
   @Test
@@ -147,5 +144,126 @@ class TestOzoneLocal {
         () -> command.resolveConfig(new OzoneConfiguration()));
 
     assertTrue(error.getMessage().contains("at least 1"));
+  }
+
+  @Test
+  void commandExecutionPrintsStartupSummary() throws Exception {
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    StubRuntime runtime = new StubRuntime("localhost", 9860, 9862,
+        "http://localhost:9878");
+    TestableRunCommand command = new TestableRunCommand(
+        Collections.emptyMap(), runtime);
+    CommandLine cli = new CommandLine(command);
+    cli.setOut(outputWriter(output));
+
+    int exitCode = cli.execute();
+
+    assertEquals(0, exitCode);
+    assertTrue(runtime.started);
+    assertTrue(runtime.closed);
+    String text = output.toString(UTF_8.name());
+    assertTrue(text.contains("Local Ozone is running from"));
+    assertTrue(text.contains("SCM RPC: localhost:9860"));
+    assertTrue(text.contains("OM RPC: localhost:9862"));
+    assertTrue(text.contains("S3 endpoint: http://localhost:9878"));
+    assertTrue(text.contains("AWS_ACCESS_KEY_ID="
+        + LocalOzoneClusterConfig.DEFAULT_S3_ACCESS_KEY));
+    assertTrue(text.contains("Press Ctrl+C to stop."));
+  }
+
+  @Test
+  void commandExecutionOmitsS3SummaryWhenDisabled() throws Exception {
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    StubRuntime runtime = new StubRuntime("localhost", 9860, 9862, "");
+    TestableRunCommand command = new TestableRunCommand(
+        Collections.emptyMap(), runtime);
+    CommandLine cli = new CommandLine(command);
+    cli.setOut(outputWriter(output));
+
+    int exitCode = cli.execute("--without-s3g");
+
+    assertEquals(0, exitCode);
+    String text = output.toString(UTF_8.name());
+    assertFalse(text.contains("S3 endpoint:"));
+    assertFalse(text.contains("AWS_ACCESS_KEY_ID="));
+    assertTrue(text.contains("Press Ctrl+C to stop."));
+  }
+
+  private static java.io.PrintWriter outputWriter(ByteArrayOutputStream output) {
+    return new java.io.PrintWriter(new OutputStreamWriter(output, UTF_8), true);
+  }
+
+  private static final class TestableRunCommand extends OzoneLocal.RunCommand {
+
+    private final LocalOzoneRuntime runtime;
+
+    private TestableRunCommand(Map<String, String> environment,
+        LocalOzoneRuntime runtime) {
+      super(environment);
+      this.runtime = runtime;
+    }
+
+    @Override
+    LocalOzoneRuntime createRuntime(LocalOzoneClusterConfig config,
+        OzoneConfiguration baseConfiguration) {
+      return runtime;
+    }
+
+    @Override
+    void awaitShutdown(LocalOzoneRuntime runtime) {
+    }
+  }
+
+  private static final class StubRuntime implements LocalOzoneRuntime {
+
+    private final String displayHost;
+    private final int scmPort;
+    private final int omPort;
+    private final String s3Endpoint;
+    private boolean started;
+    private boolean closed;
+
+    private StubRuntime(String displayHost, int scmPort, int omPort,
+        String s3Endpoint) {
+      this.displayHost = displayHost;
+      this.scmPort = scmPort;
+      this.omPort = omPort;
+      this.s3Endpoint = s3Endpoint;
+    }
+
+    @Override
+    public void start() {
+      started = true;
+    }
+
+    @Override
+    public String getDisplayHost() {
+      return displayHost;
+    }
+
+    @Override
+    public int getScmPort() {
+      return scmPort;
+    }
+
+    @Override
+    public int getOmPort() {
+      return omPort;
+    }
+
+    @Override
+    public int getS3gPort() {
+      return 0;
+    }
+
+    @Override
+    public String getS3Endpoint() {
+      return s3Endpoint;
+    }
+
+    @Override
+    public void close() {
+      closed = true;
+    }
   }
 }

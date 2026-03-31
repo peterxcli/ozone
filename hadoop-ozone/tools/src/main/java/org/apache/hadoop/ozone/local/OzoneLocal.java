@@ -17,27 +17,34 @@
 
 package org.apache.hadoop.ozone.local;
 
+import java.io.PrintWriter;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.hdds.cli.GenericCli;
 import org.apache.hadoop.hdds.cli.HddsVersionProvider;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.ratis.util.ExitUtils;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.ParentCommand;
+import picocli.CommandLine.Spec;
 
 /**
- * Internal CLI entry point for local single-node Ozone commands.
+ * CLI entry point for local single-node Ozone.
  */
 @Command(name = "ozone local",
-    description = "Internal commands for local single-node Ozone",
+    description = "Run a single-node local Ozone cluster",
     versionProvider = HddsVersionProvider.class,
     mixinStandardHelpOptions = true,
     subcommands = {
@@ -65,9 +72,14 @@ public class OzoneLocal extends GenericCli {
   }
 
   @Command(name = "run",
-      hidden = true,
-      description = "Internal placeholder for a local Ozone runtime")
+      description = "Start SCM, OM, datanodes, and optional S3 Gateway in one process")
   static class RunCommand implements Callable<Void> {
+
+    @ParentCommand
+    private OzoneLocal parent;
+
+    @Spec
+    private CommandSpec spec;
 
     private final Map<String, String> environment;
 
@@ -132,8 +144,15 @@ public class OzoneLocal extends GenericCli {
     }
 
     @Override
-    public Void call() {
-      resolveConfig(new OzoneConfiguration());
+    public Void call() throws Exception {
+      OzoneConfiguration baseConfiguration = getBaseConfiguration();
+      LocalOzoneClusterConfig config = resolveConfig(baseConfiguration);
+      try (LocalOzoneRuntime runtime = createRuntime(config,
+          new OzoneConfiguration(baseConfiguration))) {
+        runtime.start();
+        printSummary(runtime, config, getOutput());
+        awaitShutdown(runtime);
+      }
       return null;
     }
 
@@ -323,6 +342,73 @@ public class OzoneLocal extends GenericCli {
 
     private static boolean isBlank(String value) {
       return value == null || value.trim().isEmpty();
+    }
+
+    LocalOzoneRuntime createRuntime(LocalOzoneClusterConfig config,
+        OzoneConfiguration baseConfiguration) {
+      return new LocalOzoneCluster(config, baseConfiguration);
+    }
+
+    void awaitShutdown(LocalOzoneRuntime runtime) throws InterruptedException {
+      CountDownLatch stopped = new CountDownLatch(1);
+      Thread shutdownHook = new Thread(() -> {
+        try {
+          runtime.close();
+        } catch (Exception ex) {
+          throw new RuntimeException("Failed to close ozone local runtime",
+              ex);
+        } finally {
+          stopped.countDown();
+        }
+      }, "ozone-local-shutdown");
+      Runtime.getRuntime().addShutdownHook(shutdownHook);
+      try {
+        stopped.await();
+      } finally {
+        try {
+          Runtime.getRuntime().removeShutdownHook(shutdownHook);
+        } catch (IllegalStateException ignored) {
+          // JVM shutdown is already in progress.
+        }
+      }
+    }
+
+    List<String> buildSummary(LocalOzoneRuntime runtime,
+        LocalOzoneClusterConfig config) {
+      List<String> lines = new ArrayList<>();
+      lines.add("Local Ozone is running from " + config.getDataDir());
+      lines.add("SCM RPC: " + runtime.getDisplayHost() + ":"
+          + runtime.getScmPort());
+      lines.add("OM RPC: " + runtime.getDisplayHost() + ":"
+          + runtime.getOmPort());
+      if (config.isS3gEnabled()) {
+        lines.add("S3 endpoint: " + runtime.getS3Endpoint());
+        lines.add("Suggested local AWS settings:");
+        lines.add("AWS_ACCESS_KEY_ID=" + config.getS3AccessKey());
+        lines.add("AWS_SECRET_ACCESS_KEY=" + config.getS3SecretKey());
+        lines.add("AWS_REGION=" + config.getS3Region());
+        lines.add("AWS_ENDPOINT_URL_S3=" + runtime.getS3Endpoint());
+        lines.add("AWS_S3_FORCE_PATH_STYLE=true");
+        lines.add("These credentials are pre-provisioned for the local S3 "
+            + "gateway.");
+      }
+      lines.add("Press Ctrl+C to stop.");
+      return lines;
+    }
+
+    void printSummary(LocalOzoneRuntime runtime, LocalOzoneClusterConfig config,
+        PrintWriter out) {
+      buildSummary(runtime, config).forEach(out::println);
+      out.flush();
+    }
+
+    private OzoneConfiguration getBaseConfiguration() {
+      return parent != null ? parent.getOzoneConf() : new OzoneConfiguration();
+    }
+
+    private PrintWriter getOutput() {
+      return spec != null ? spec.commandLine().getOut()
+          : new PrintWriter(System.out, true);
     }
   }
 }
