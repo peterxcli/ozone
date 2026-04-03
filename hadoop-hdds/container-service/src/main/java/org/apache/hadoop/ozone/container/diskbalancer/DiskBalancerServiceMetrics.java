@@ -17,6 +17,8 @@
 
 package org.apache.hadoop.ozone.container.diskbalancer;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.annotation.Metric;
 import org.apache.hadoop.metrics2.annotation.Metrics;
@@ -31,9 +33,11 @@ import org.apache.hadoop.metrics2.lib.MutableRate;
     + "background disk balancer service on Datanode", context = "dfs")
 public final class DiskBalancerServiceMetrics {
 
-  private static DiskBalancerServiceMetrics instance;
   public static final String SOURCE_NAME =
       DiskBalancerServiceMetrics.class.getSimpleName();
+  private static final Map<String, DiskBalancerServiceMetrics> INSTANCES =
+      new ConcurrentHashMap<>();
+  private final String sourceName;
 
   @Metric(about = "The number of successful balance job")
   private MutableCounterLong successCount;
@@ -59,26 +63,44 @@ public final class DiskBalancerServiceMetrics {
   @Metric(about = "The number of idle loop due to bandwidth limits.")
   private MutableCounterLong idleLoopExceedsBandwidthCount;
 
-  private DiskBalancerServiceMetrics() {
+  private DiskBalancerServiceMetrics(String sourceName) {
+    this.sourceName = sourceName;
   }
 
   public static DiskBalancerServiceMetrics create() {
-    if (instance == null) {
-      MetricsSystem ms = DefaultMetricsSystem.instance();
-      instance = ms.register(SOURCE_NAME, "DiskBalancerService",
-          new DiskBalancerServiceMetrics());
-    }
+    return createWithSourceName(SOURCE_NAME);
+  }
 
-    return instance;
+  public static DiskBalancerServiceMetrics create(String component) {
+    return createWithSourceName(buildSourceName(component));
+  }
+
+  private static DiskBalancerServiceMetrics createWithSourceName(
+      String sourceName) {
+    MetricsSystem ms = DefaultMetricsSystem.instance();
+    return INSTANCES.computeIfAbsent(sourceName,
+        key -> ms.register(key, "DiskBalancerService",
+            new DiskBalancerServiceMetrics(key)));
+  }
+
+  private static String buildSourceName(String component) {
+    return SOURCE_NAME + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   /**
    * Unregister the metrics instance.
    */
   public static void unRegister() {
-    instance = null;
     MetricsSystem ms = DefaultMetricsSystem.instance();
+    INSTANCES.remove(SOURCE_NAME);
     ms.unregisterSource(SOURCE_NAME);
+  }
+
+  public void unregister() {
+    MetricsSystem ms = DefaultMetricsSystem.instance();
+    INSTANCES.remove(sourceName);
+    ms.unregisterSource(sourceName);
   }
 
   public void incrSuccessCount(long count) {

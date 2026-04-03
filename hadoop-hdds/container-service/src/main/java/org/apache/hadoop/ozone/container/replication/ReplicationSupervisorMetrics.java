@@ -38,28 +38,45 @@ public class ReplicationSupervisorMetrics implements MetricsSource {
 
   public static final String SOURCE =
       ReplicationSupervisorMetrics.class.getSimpleName();
+  private final String sourceName;
   private final ReplicationSupervisor supervisor;
 
   public ReplicationSupervisorMetrics(ReplicationSupervisor
-      replicationSupervisor) {
+      replicationSupervisor, String sourceName) {
+    this.sourceName = sourceName;
     this.supervisor = replicationSupervisor;
   }
 
   public static ReplicationSupervisorMetrics create(ReplicationSupervisor
       supervisor) {
+    return createWithSourceName(supervisor, SOURCE);
+  }
+
+  public static ReplicationSupervisorMetrics create(ReplicationSupervisor
+      supervisor, String component) {
+    return createWithSourceName(supervisor, buildSourceName(component));
+  }
+
+  private static ReplicationSupervisorMetrics createWithSourceName(
+      ReplicationSupervisor supervisor, String sourceName) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    return ms.register(SOURCE, "Container Replication Supervisor Metrics",
-        new ReplicationSupervisorMetrics(supervisor));
+    return ms.register(sourceName, "Container Replication Supervisor Metrics",
+        new ReplicationSupervisorMetrics(supervisor, sourceName));
+  }
+
+  private static String buildSourceName(String component) {
+    return SOURCE + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   public void unRegister() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(SOURCE);
+    ms.unregisterSource(sourceName);
   }
 
   @Override
   public void getMetrics(MetricsCollector collector, boolean all) {
-    MetricsRecordBuilder builder = collector.addRecord(SOURCE);
+    MetricsRecordBuilder builder = collector.addRecord(sourceName);
     builder.addGauge(Interns.info("numInFlightReplications",
         "Total number of pending replications and reconstructions both low "
             + "and normal priority"),

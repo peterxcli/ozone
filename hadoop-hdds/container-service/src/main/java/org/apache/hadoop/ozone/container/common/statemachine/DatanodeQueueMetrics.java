@@ -62,9 +62,9 @@ public final class DatanodeQueueMetrics implements MetricsSource {
       "PipelineActionQueue";
 
   private MetricsRegistry registry;
+  private final String sourceName;
 
   private DatanodeStateMachine datanodeStateMachine;
-  private static DatanodeQueueMetrics instance;
 
   private Map<SCMCommandProto.Type, MetricsInfo> stateContextCommandQueueMap;
   private Map<SCMCommandProto.Type, MetricsInfo> commandDispatcherQueueMap;
@@ -72,8 +72,10 @@ public final class DatanodeQueueMetrics implements MetricsSource {
   private Map<InetSocketAddress, MetricsInfo> containerActionQueueMap;
   private Map<InetSocketAddress, MetricsInfo> pipelineActionQueueMap;
 
-  public DatanodeQueueMetrics(DatanodeStateMachine datanodeStateMachine) {
-    this.registry = new MetricsRegistry(METRICS_SOURCE_NAME);
+  private DatanodeQueueMetrics(DatanodeStateMachine datanodeStateMachine,
+      String sourceName) {
+    this.sourceName = sourceName;
+    this.registry = new MetricsRegistry(sourceName);
     this.datanodeStateMachine = datanodeStateMachine;
 
     initializeQueues();
@@ -81,13 +83,22 @@ public final class DatanodeQueueMetrics implements MetricsSource {
 
   public static synchronized DatanodeQueueMetrics create(DatanodeStateMachine
       datanodeStateMachine) {
-    if (instance != null) {
-      return instance;
-    }
-    instance = DefaultMetricsSystem.instance().register(METRICS_SOURCE_NAME,
+    return create(datanodeStateMachine, null);
+  }
+
+  public static synchronized DatanodeQueueMetrics create(
+      DatanodeStateMachine datanodeStateMachine, String component) {
+    String sourceName = component == null
+        ? METRICS_SOURCE_NAME
+        : buildSourceName(component);
+    return DefaultMetricsSystem.instance().register(sourceName,
         "Queue metrics in Datanode",
-        new DatanodeQueueMetrics(datanodeStateMachine));
-    return instance;
+        new DatanodeQueueMetrics(datanodeStateMachine, sourceName));
+  }
+
+  private static String buildSourceName(String component) {
+    return METRICS_SOURCE_NAME + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   private void initializeQueues() {
@@ -114,7 +125,7 @@ public final class DatanodeQueueMetrics implements MetricsSource {
 
   @Override
   public void getMetrics(MetricsCollector collector, boolean b) {
-    MetricsRecordBuilder builder = collector.addRecord(METRICS_SOURCE_NAME);
+    MetricsRecordBuilder builder = collector.addRecord(sourceName);
 
     EnumCounters<SCMCommandProto.Type> tmpEnum =
         datanodeStateMachine.getContext().getCommandQueueSummary();
@@ -152,9 +163,8 @@ public final class DatanodeQueueMetrics implements MetricsSource {
     }
   }
 
-  public static synchronized void unRegister() {
-    instance = null;
-    DefaultMetricsSystem.instance().unregisterSource(METRICS_SOURCE_NAME);
+  public synchronized void unRegister() {
+    DefaultMetricsSystem.instance().unregisterSource(sourceName);
   }
 
   public void addEndpoint(InetSocketAddress endpoint) {

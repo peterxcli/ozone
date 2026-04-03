@@ -35,8 +35,16 @@ public final class OnDemandScannerMetrics
   }
 
   public static OnDemandScannerMetrics create() {
+    return createWithName("On-demand container scanner metrics");
+  }
+
+  public static OnDemandScannerMetrics create(String component) {
+    return createWithName("OnDemandContainerScannerMetrics."
+        + component.replaceAll("[^A-Za-z0-9]+", ""));
+  }
+
+  private static OnDemandScannerMetrics createWithName(String name) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    String name = "On-demand container scanner metrics";
     return ms.register(name, null, new OnDemandScannerMetrics(name, ms));
   }
 }

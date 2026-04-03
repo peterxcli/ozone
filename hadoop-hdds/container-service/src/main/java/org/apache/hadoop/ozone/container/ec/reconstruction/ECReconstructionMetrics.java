@@ -34,24 +34,40 @@ import org.apache.hadoop.ozone.OzoneConsts;
 public final class ECReconstructionMetrics {
   private static final String SOURCE =
       ECReconstructionMetrics.class.getSimpleName();
+  private final String sourceName;
 
   private @Metric MutableCounterLong blockGroupReconstructionTotal;
   private @Metric MutableCounterLong blockGroupReconstructionFailsTotal;
   private @Metric MutableCounterLong reconstructionTotal;
   private @Metric MutableCounterLong reconstructionFailsTotal;
 
-  private ECReconstructionMetrics() {
+  private ECReconstructionMetrics(String sourceName) {
+    this.sourceName = sourceName;
   }
 
   public static ECReconstructionMetrics create() {
+    return createWithSourceName(SOURCE);
+  }
+
+  public static ECReconstructionMetrics create(String component) {
+    return createWithSourceName(buildSourceName(component));
+  }
+
+  private static ECReconstructionMetrics createWithSourceName(
+      String sourceName) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    return ms.register(SOURCE, "EC Reconstruction Coordinator Metrics",
-        new ECReconstructionMetrics());
+    return ms.register(sourceName, "EC Reconstruction Coordinator Metrics",
+        new ECReconstructionMetrics(sourceName));
+  }
+
+  private static String buildSourceName(String component) {
+    return SOURCE + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   public void unRegister() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(SOURCE);
+    ms.unregisterSource(sourceName);
   }
 
   public void incBlockGroupReconstructionTotal(long count) {

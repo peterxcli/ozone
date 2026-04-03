@@ -17,6 +17,8 @@
 
 package org.apache.hadoop.ozone.container.common.helpers;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.annotation.Metric;
 import org.apache.hadoop.metrics2.annotation.Metrics;
@@ -32,9 +34,11 @@ import org.apache.hadoop.ozone.container.common.impl.BlockDeletingService;
     + "background block deleting service on Datanode", context = "dfs")
 public final class BlockDeletingServiceMetrics {
 
-  private static BlockDeletingServiceMetrics instance;
   public static final String SOURCE_NAME =
       BlockDeletingService.class.getSimpleName();
+  private static final Map<String, BlockDeletingServiceMetrics> INSTANCES =
+      new ConcurrentHashMap<>();
+  private final String sourceName;
 
   @Metric(about = "The number of successful delete blocks")
   private MutableCounterLong successCount;
@@ -84,26 +88,44 @@ public final class BlockDeletingServiceMetrics {
   @Metric(about = "The number of delete block transactions failed.")
   private MutableGaugeLong processedTransactionFailCount;
 
-  private BlockDeletingServiceMetrics() {
+  private BlockDeletingServiceMetrics(String sourceName) {
+    this.sourceName = sourceName;
   }
 
   public static BlockDeletingServiceMetrics create() {
-    if (instance == null) {
-      MetricsSystem ms = DefaultMetricsSystem.instance();
-      instance = ms.register(SOURCE_NAME, "BlockDeletingService",
-          new BlockDeletingServiceMetrics());
-    }
+    return createWithSourceName(SOURCE_NAME);
+  }
 
-    return instance;
+  public static BlockDeletingServiceMetrics create(String component) {
+    return createWithSourceName(buildSourceName(component));
+  }
+
+  private static BlockDeletingServiceMetrics createWithSourceName(
+      String sourceName) {
+    MetricsSystem ms = DefaultMetricsSystem.instance();
+    return INSTANCES.computeIfAbsent(sourceName,
+        key -> ms.register(key, "BlockDeletingService",
+            new BlockDeletingServiceMetrics(key)));
+  }
+
+  private static String buildSourceName(String component) {
+    return SOURCE_NAME + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   /**
    * Unregister the metrics instance.
    */
   public static void unRegister() {
-    instance = null;
     MetricsSystem ms = DefaultMetricsSystem.instance();
+    INSTANCES.remove(SOURCE_NAME);
     ms.unregisterSource(SOURCE_NAME);
+  }
+
+  public void unregister() {
+    MetricsSystem ms = DefaultMetricsSystem.instance();
+    INSTANCES.remove(sourceName);
+    ms.unregisterSource(sourceName);
   }
 
   public void incrSuccessCount(long count) {
