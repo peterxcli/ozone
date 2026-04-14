@@ -36,8 +36,16 @@ public final class ContainerMetadataScannerMetrics
   }
 
   public static ContainerMetadataScannerMetrics create() {
+    return createWithName("ContainerMetadataScannerMetrics");
+  }
+
+  public static ContainerMetadataScannerMetrics create(String component) {
+    return createWithName("ContainerMetadataScannerMetrics."
+        + component.replaceAll("[^A-Za-z0-9]+", ""));
+  }
+
+  private static ContainerMetadataScannerMetrics createWithName(String name) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    String name = "ContainerMetadataScannerMetrics";
     return ms.register(name, null,
         new ContainerMetadataScannerMetrics(name, ms));
   }

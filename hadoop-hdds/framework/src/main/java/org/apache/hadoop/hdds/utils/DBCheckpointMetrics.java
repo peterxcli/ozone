@@ -32,8 +32,9 @@ import org.apache.hadoop.metrics2.lib.MutableGaugeLong;
 @InterfaceAudience.Private
 @Metrics(about = "DB checkpoint Metrics", context = "dfs")
 public class DBCheckpointMetrics {
-  private static final String SOURCE_NAME =
+  private static final String SOURCE_NAME_PREFIX =
       DBCheckpointMetrics.class.getSimpleName();
+  private final String sourceName;
 
   // Metrics to track checkpoint statistics from last run.
   private @Metric MutableGaugeLong lastCheckpointCreationTimeTaken;
@@ -44,19 +45,22 @@ public class DBCheckpointMetrics {
   private @Metric MutableCounterLong numCheckpointFails;
   private @Metric MutableCounterLong numIncrementalCheckpoints;
 
-  public DBCheckpointMetrics() {
+  private DBCheckpointMetrics(String sourceName) {
+    this.sourceName = sourceName;
   }
 
   public static DBCheckpointMetrics create(String parent) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    return ms.register(SOURCE_NAME,
+    String sourceName = SOURCE_NAME_PREFIX + "."
+        + parent.replaceAll("[^A-Za-z0-9]+", "");
+    return ms.register(sourceName,
         parent,
-        new DBCheckpointMetrics());
+        new DBCheckpointMetrics(sourceName));
   }
 
   public void unRegister() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(SOURCE_NAME);
+    ms.unregisterSource(sourceName);
   }
 
   @VisibleForTesting
