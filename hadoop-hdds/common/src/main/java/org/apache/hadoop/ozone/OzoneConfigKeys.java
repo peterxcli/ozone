@@ -218,6 +218,16 @@ public final class OzoneConfigKeys {
   public static final String OZONE_READONLY_ADMINISTRATORS_GROUPS =
       "ozone.readonly.administrators.groups";
 
+  public static final String OZONE_BLACKLIST_USERS =
+      "ozone.blacklist.users";
+  public static final String OZONE_BLACKLIST_GROUPS =
+      "ozone.blacklist.groups";
+
+  public static final String OZONE_READ_BLACKLIST_USERS =
+      "ozone.read.blacklist.users";
+  public static final String OZONE_READ_BLACKLIST_GROUPS =
+      "ozone.read.blacklist.groups";
+
   /**
    * Used only for testing purpose. Results in making every user an admin.
    * */
@@ -547,6 +557,7 @@ public final class OzoneConfigKeys {
       "ozone.http.policy";
   public static final String OZONE_HTTP_POLICY_DEFAULT =
       HttpConfig.Policy.HTTP_ONLY.name();
+  public static final String  OZONE_SSL_ENABLED_PROTOCOLS = "ozone.ssl.enabled.protocols";
   public static final String  OZONE_SERVER_HTTPS_KEYSTORE_RESOURCE_KEY =
       "ozone.https.server.keystore.resource";
   public static final String  OZONE_SERVER_HTTPS_KEYSTORE_RESOURCE_DEFAULT =
