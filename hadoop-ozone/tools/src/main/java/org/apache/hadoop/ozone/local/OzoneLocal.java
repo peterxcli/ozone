@@ -65,6 +65,8 @@ public class OzoneLocal extends GenericCli {
   static final String ENV_STARTUP_TIMEOUT = "OZONE_LOCAL_STARTUP_TIMEOUT";
   static final String ENV_S3_ACCESS_KEY = "OZONE_LOCAL_S3_ACCESS_KEY";
   static final String ENV_S3_SECRET_KEY = "OZONE_LOCAL_S3_SECRET_KEY";
+  static final String ENV_AWS_ACCESS_KEY_ID = "AWS_ACCESS_KEY_ID";
+  static final String ENV_AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY";
 
   public static void main(String[] args) {
     ExitUtils.disableSystemExit();
@@ -201,9 +203,11 @@ public class OzoneLocal extends GenericCli {
 
       String resolvedAccessKey = firstNonBlank(s3AccessKey,
           environment.get(ENV_S3_ACCESS_KEY),
+          environment.get(ENV_AWS_ACCESS_KEY_ID),
           LocalOzoneClusterConfig.DEFAULT_S3_ACCESS_KEY);
       String resolvedSecretKey = firstNonBlank(s3SecretKey,
           environment.get(ENV_S3_SECRET_KEY),
+          environment.get(ENV_AWS_SECRET_ACCESS_KEY),
           LocalOzoneClusterConfig.DEFAULT_S3_SECRET_KEY);
 
       return LocalOzoneClusterConfig.builder(resolvedDataDir)
@@ -222,15 +226,13 @@ public class OzoneLocal extends GenericCli {
           .build();
     }
 
-    private static String firstNonBlank(String first, String second,
-        String fallback) {
-      if (!isBlank(first)) {
-        return first.trim();
+    private static String firstNonBlank(String... values) {
+      for (String value : values) {
+        if (!isBlank(value)) {
+          return value.trim();
+        }
       }
-      if (!isBlank(second)) {
-        return second.trim();
-      }
-      return fallback;
+      return null;
     }
 
     private static Path resolvePath(String cliValue, String envValue,

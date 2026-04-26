@@ -111,6 +111,21 @@ class TestOzoneLocal {
   }
 
   @Test
+  void resolveConfigUsesAwsCredentialEnvironmentFallback() {
+    Map<String, String> env = new HashMap<>();
+    env.put(OzoneLocal.ENV_AWS_ACCESS_KEY_ID, "aws-dev");
+    env.put(OzoneLocal.ENV_AWS_SECRET_ACCESS_KEY, "aws-devsecret");
+
+    OzoneLocal.RunCommand command = new OzoneLocal.RunCommand(env);
+
+    LocalOzoneClusterConfig config =
+        command.resolveConfig(new OzoneConfiguration());
+
+    assertEquals("aws-dev", config.getS3AccessKey());
+    assertEquals("aws-devsecret", config.getS3SecretKey());
+  }
+
+  @Test
   void resolveConfigRejectsInvalidBooleanEnvironmentValue() {
     Map<String, String> env = new HashMap<>();
     env.put(OzoneLocal.ENV_S3G_ENABLED, "sometimes");

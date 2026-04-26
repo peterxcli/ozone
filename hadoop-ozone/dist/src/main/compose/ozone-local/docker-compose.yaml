@@ -20,28 +20,13 @@ services:
     user: "0:0"
     volumes:
       - ../..:/opt/hadoop
-      - ozone-local-data:/data/local
+      - ozone-local-data:/root/.ozone/local
     environment:
-      OZONE_LOCAL_DATA_DIR: /data/local
-      OZONE_LOCAL_FORMAT: if-needed
-      OZONE_LOCAL_DATANODES: 1
-      OZONE_LOCAL_HOST: 127.0.0.1
-      OZONE_LOCAL_BIND_HOST: 0.0.0.0
-      OZONE_LOCAL_SCM_PORT: 9860
-      OZONE_LOCAL_OM_PORT: 9862
-      OZONE_LOCAL_S3G_ENABLED: true
-      OZONE_LOCAL_S3G_PORT: 9878
-      OZONE_LOCAL_STARTUP_TIMEOUT: 180s
-      OZONE_LOCAL_S3_ACCESS_KEY: admin
-      OZONE_LOCAL_S3_SECRET_KEY: admin123
       AWS_ACCESS_KEY_ID: admin
       AWS_SECRET_ACCESS_KEY: admin123
-      AWS_REGION: us-east-1
     ports:
-      - 9860:9860
-      - 9862:9862
       - 9878:9878
-    command: ["ozone", "local", "run"]
+    command: ["ozone", "local", "run", "--s3g-port", "9878"]
 
 volumes:
   ozone-local-data:

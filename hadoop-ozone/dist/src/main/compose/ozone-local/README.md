@@ -15,9 +15,9 @@
 # Ozone Local Compose Example
 
 This Compose definition runs the packaged `ozone local run` command in a single
-container. The cluster is configured only through `OZONE_LOCAL_*` environment
-variables in [`docker-compose.yaml`](./docker-compose.yaml); it does not rely on
-an extra `ozone-site.xml` overlay.
+container. The quickstart surface is intentionally small: the Compose file only
+sets the local S3 access key and secret key, then lets `ozone local run` use its
+defaults for the single-node cluster.
 
 ## Usage
 
@@ -44,4 +44,20 @@ Stop and remove the container and its named volume:
 
 ```bash
 docker-compose down -v
+```
+
+## Advanced configuration
+
+The minimal Compose file pins the S3 Gateway port with
+`ozone local run --s3g-port 9878` so the host can publish a stable S3 endpoint.
+Additional local runtime settings can still be provided with `OZONE_LOCAL_*`
+environment variables, for example:
+
+```yaml
+environment:
+  AWS_ACCESS_KEY_ID: admin
+  AWS_SECRET_ACCESS_KEY: admin123
+  OZONE_LOCAL_DATANODES: 2
+  OZONE_LOCAL_FORMAT: always
+  OZONE_LOCAL_STARTUP_TIMEOUT: 180s
 ```
