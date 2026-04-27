@@ -63,14 +63,15 @@ class TestLocalOzoneS3SDK {
              new LocalOzoneCluster(config, new OzoneConfiguration())) {
       cluster.start();
 
-      try (S3Client client = S3Client.builder()
+      S3Client client = S3Client.builder()
           .region(Region.US_EAST_1)
           .endpointOverride(URI.create(cluster.getS3Endpoint()))
           .credentialsProvider(StaticCredentialsProvider.create(
               AwsBasicCredentials.create(config.getS3AccessKey(),
                   config.getS3SecretKey())))
           .forcePathStyle(true)
-          .build()) {
+          .build();
+      try {
         client.createBucket(builder -> builder.bucket(bucketName));
 
         ListBucketsResponse buckets = client.listBuckets();
@@ -83,6 +84,8 @@ class TestLocalOzoneS3SDK {
         ResponseBytes<GetObjectResponse> response = client.getObjectAsBytes(
             builder -> builder.bucket(bucketName).key(keyName));
         assertEquals(payload, response.asUtf8String());
+      } finally {
+        client.close();
       }
     }
   }

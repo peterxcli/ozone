@@ -628,10 +628,13 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     if (!Files.exists(directory)) {
       return;
     }
-    try (Stream<Path> paths = Files.walk(directory)) {
+    Stream<Path> paths = Files.walk(directory);
+    try {
       for (Path path : (Iterable<Path>) paths.sorted(Comparator.reverseOrder())::iterator) {
         Files.deleteIfExists(path);
       }
+    } finally {
+      paths.close();
     }
   }
 

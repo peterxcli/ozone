@@ -17,7 +17,9 @@
 
 package org.apache.hadoop.ozone.local;
 
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -159,11 +161,14 @@ public class OzoneLocal extends GenericCli {
     public Void call() throws Exception {
       OzoneConfiguration baseConfiguration = getBaseConfiguration();
       LocalOzoneClusterConfig config = resolveConfig(baseConfiguration);
-      try (LocalOzoneRuntime runtime = createRuntime(config,
-          new OzoneConfiguration(baseConfiguration))) {
+      LocalOzoneRuntime runtime = createRuntime(config,
+          new OzoneConfiguration(baseConfiguration));
+      try {
         runtime.start();
         printSummary(runtime, config, getOutput());
         awaitShutdown(runtime);
+      } finally {
+        runtime.close();
       }
       return null;
     }
@@ -438,7 +443,8 @@ public class OzoneLocal extends GenericCli {
 
     private PrintWriter getOutput() {
       return spec != null ? spec.commandLine().getOut()
-          : new PrintWriter(System.out, true);
+          : new PrintWriter(new OutputStreamWriter(System.out,
+              StandardCharsets.UTF_8), true);
     }
   }
 }

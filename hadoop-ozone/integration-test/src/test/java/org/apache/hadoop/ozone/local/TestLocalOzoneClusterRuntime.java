@@ -78,10 +78,13 @@ class TestLocalOzoneClusterRuntime {
       assertTrue(cluster.getOmPort() > 0);
       assertEquals(2, cluster.getStartedDatanodeCount());
 
-      try (OzoneClient client = OzoneClientFactory.getRpcClient(clientConf)) {
+      OzoneClient client = OzoneClientFactory.getRpcClient(clientConf);
+      try {
         OzoneVolume volume = createVolume(client, volumeName);
         OzoneBucket bucket = createBucket(volume, bucketName);
         writeKey(bucket, keyName, payload);
+      } finally {
+        client.close();
       }
     }
   }
@@ -95,12 +98,15 @@ class TestLocalOzoneClusterRuntime {
           cluster.prepareConfiguration().getConfiguration();
       cluster.start();
 
-      try (OzoneClient client = OzoneClientFactory.getRpcClient(clientConf)) {
+      OzoneClient client = OzoneClientFactory.getRpcClient(clientConf);
+      try {
         OzoneVolume volume = client.getObjectStore().getVolume(volumeName);
         OzoneBucket bucket = volume.getBucket(bucketName);
         try (OzoneInputStream input = bucket.readKey(keyName)) {
           assertArrayEquals(payload, toByteArray(input));
         }
+      } finally {
+        client.close();
       }
     }
   }
@@ -119,9 +125,12 @@ class TestLocalOzoneClusterRuntime {
 
   private static void writeKey(OzoneBucket bucket, String keyName,
       byte[] payload) throws Exception {
-    try (OzoneOutputStream output = bucket.createKey(keyName, payload.length,
-        ReplicationType.STAND_ALONE, ReplicationFactor.ONE, null)) {
+    OzoneOutputStream output = bucket.createKey(keyName, payload.length,
+        ReplicationType.STAND_ALONE, ReplicationFactor.ONE, null);
+    try {
       output.write(payload);
+    } finally {
+      output.close();
     }
   }
 }
