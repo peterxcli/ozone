@@ -1197,6 +1197,12 @@ message KeyInfo {
     // the given ETag for the operation to succeed. This is used for
     // S3 conditional writes with the If-Match header.
     optional string expectedETag = 23;
+
+    // MVCC-style visibility interval for snapshot key reclamation.
+    // A key version is visible to a snapshot when:
+    // seqNumMin <= snapshotCreateSeqNum < seqNumMax.
+    optional uint64 seqNumMin = 24;
+    optional uint64 seqNumMax = 25;
 }
 
 // KeyInfoProtoLight is a lightweight subset of KeyInfo message containing

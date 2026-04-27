@@ -17,6 +17,7 @@
 
 package org.apache.hadoop.ozone.om.snapshot.filter;
 
+import static org.apache.hadoop.ozone.OzoneConsts.OM_KEY_PREFIX;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
@@ -24,22 +25,31 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.hadoop.hdds.client.RatisReplicationConfig;
+import org.apache.hadoop.hdds.protocol.proto.HddsProtos.ReplicationFactor;
+import org.apache.hadoop.hdds.utils.TransactionInfo;
 import org.apache.hadoop.hdds.utils.db.Table;
 import org.apache.hadoop.ozone.om.KeyManager;
 import org.apache.hadoop.ozone.om.OmSnapshot;
 import org.apache.hadoop.ozone.om.OmSnapshotManager;
 import org.apache.hadoop.ozone.om.OzoneManager;
+import org.apache.hadoop.ozone.om.SnapshotChainInfo;
 import org.apache.hadoop.ozone.om.SnapshotChainManager;
+import org.apache.hadoop.ozone.om.helpers.BucketLayout;
 import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
 import org.apache.hadoop.ozone.om.helpers.SnapshotInfo;
 import org.apache.hadoop.ozone.om.lock.IOzoneManagerLock;
 import org.apache.hadoop.ozone.om.snapshot.SnapshotUtils;
 import org.apache.ratis.util.function.UncheckedAutoCloseableSupplier;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -159,6 +169,66 @@ public class TestReclaimableKeyFilter extends AbstractReclaimableFilterTest {
 
   private OmKeyInfo getMockedOmKeyInfo(long objectId) {
     return getMockedOmKeyInfo(objectId, 0, 0);
+  }
+
+  @Test
+  public void testSeqNumIntervalBoundaries() throws Exception {
+    setup(2, 3, 3, 1, 1, info -> {
+      int snapshotIndex = Integer.parseInt(info.getName().substring("snap".length()));
+      setCreateTransactionInfo(info, (snapshotIndex + 2L) * 10L);
+      return info;
+    }, BucketLayout.FILE_SYSTEM_OPTIMIZED);
+    String volume = getVolumes().get(0);
+    String bucket = getBuckets().get(0);
+    mockSnapshotChainPath(volume, bucket);
+
+    assertEquals(true, applySeqNumKey(volume, bucket, 10L, 20L));
+    assertEquals(false, applySeqNumKey(volume, bucket, 10L, 21L));
+    assertEquals(true, applySeqNumKey(volume, bucket, 40L, 40L));
+    assertEquals(true, applySeqNumKey(volume, bucket, 41L, 50L));
+  }
+
+  private Boolean applySeqNumKey(String volume, String bucket, long seqNumMin,
+      long seqNumMax) throws IOException {
+    OmKeyInfo keyInfo = new OmKeyInfo.Builder()
+        .setVolumeName(volume)
+        .setBucketName(bucket)
+        .setKeyName("key-" + seqNumMin + "-" + seqNumMax)
+        .setCreationTime(1L)
+        .setModificationTime(1L)
+        .setDataSize(1L)
+        .setReplicationConfig(RatisReplicationConfig.getInstance(ReplicationFactor.ONE))
+        .setSeqNumMin(seqNumMin)
+        .setSeqNumMax(seqNumMax)
+        .build();
+    return (Boolean) getReclaimableFilter().apply(Table.newKeyValue(keyInfo.getKeyName(), keyInfo));
+  }
+
+  private void mockSnapshotChainPath(String volume, String bucket)
+      throws IOException {
+    List<SnapshotInfo> snapshotInfos = getSnapshotInfos().get(getKey(volume, bucket));
+    LinkedHashMap<UUID, SnapshotChainInfo> chainPath = new LinkedHashMap<>();
+    UUID previousSnapshotId = null;
+    for (SnapshotInfo snapshotInfo : snapshotInfos) {
+      UUID snapshotId = snapshotInfo.getSnapshotId();
+      chainPath.put(snapshotId, new SnapshotChainInfo(snapshotId, previousSnapshotId, null));
+      if (previousSnapshotId != null) {
+        chainPath.get(previousSnapshotId).setNextSnapshotId(snapshotId);
+      }
+      previousSnapshotId = snapshotId;
+      when(getSnapshotChainManager().getTableKey(snapshotId)).thenReturn(snapshotInfo.getTableKey());
+    }
+    when(getSnapshotChainManager().getSnapshotChainPath(volume + OM_KEY_PREFIX + bucket))
+        .thenReturn(chainPath);
+  }
+
+  private void setCreateTransactionInfo(SnapshotInfo snapshotInfo, long transactionIndex) {
+    try {
+      snapshotInfo.setCreateTransactionInfo(
+          TransactionInfo.valueOf(TransactionInfo.getTermIndex(transactionIndex)).toByteString());
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   /**

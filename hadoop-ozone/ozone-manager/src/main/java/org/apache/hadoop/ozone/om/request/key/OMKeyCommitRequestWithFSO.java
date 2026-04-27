@@ -231,6 +231,7 @@ public class OMKeyCommitRequestWithFSO extends OMKeyCommitRequest {
               commitKeyArgs.getMetadataList()))
           .setDataSize(commitKeyArgs.getDataSize())
           .setUpdateID(trxnLogIndex)
+          .setSeqNumMin(trxnLogIndex)
           .build();
 
       List<OmKeyLocationInfo> uncommitted =
@@ -318,8 +319,9 @@ public class OMKeyCommitRequestWithFSO extends OMKeyCommitRequest {
         if (null == oldKeyVersionsToDeleteMap) {
           oldKeyVersionsToDeleteMap = new HashMap<>();
         }
+        OmKeyInfo keyInfoToDelete = prepareKeyInfoForDeleteMap(trxnLogIndex, pseudoKeyInfo);
         oldKeyVersionsToDeleteMap.computeIfAbsent(delKeyName,
-            key -> new RepeatedOmKeyInfo(omBucketInfo.getObjectID())).addOmKeyInfo(pseudoKeyInfo);
+            key -> new RepeatedOmKeyInfo(omBucketInfo.getObjectID())).addOmKeyInfo(keyInfoToDelete);
       }
 
       // Add to cache of open key table and key table.

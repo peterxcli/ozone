@@ -2430,6 +2430,19 @@
   </property>
 
   <property>
+    <name>ozone.om.snapshot.key.reclaim.interval.enabled</name>
+    <value>true</value>
+    <tag>OZONE, OM, MANAGEMENT, PERFORMANCE</tag>
+    <description>
+      Enables MVCC-style deleted key reclaimability checks using optional
+      seqNumMin and seqNumMax fields on key versions. Entries without complete
+      sequence interval metadata, or buckets whose active snapshot create
+      sequence numbers cannot be built exactly, fall back to the previous
+      snapshot lookup based reclaimability logic.
+    </description>
+  </property>
+
+  <property>
     <name>ozone.acl.authorizer.class</name>
     <value>org.apache.hadoop.ozone.security.acl.OzoneAccessAuthorizer</value>
     <tag>OZONE, SECURITY, ACL</tag>

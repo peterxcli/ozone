@@ -109,6 +109,10 @@ public final class DeletingServiceMetrics {
   private MutableGaugeLong snapKeysIteratedLast;
   @Metric("Snapshot: No. of not reclaimable keys the last run")
   private MutableGaugeLong snapKeysNotReclaimableLast;
+  @Metric("Snapshot: No. of key reclaimability decisions optimized by seqNum intervals")
+  private MutableGaugeLong snapKeyReclaimIntervalOptimized;
+  @Metric("Snapshot: No. of key reclaimability decisions falling back from seqNum intervals")
+  private MutableGaugeLong snapKeyReclaimIntervalFallback;
 
   /**
    * Metric to track the term ID of the last key that was purged from the
@@ -297,6 +301,22 @@ public final class DeletingServiceMetrics {
 
   public long getSnapKeysNotReclaimableLast() {
     return snapKeysNotReclaimableLast.value();
+  }
+
+  public void incrSnapKeyReclaimIntervalOptimized() {
+    this.snapKeyReclaimIntervalOptimized.incr(1L);
+  }
+
+  public long getSnapKeyReclaimIntervalOptimized() {
+    return snapKeyReclaimIntervalOptimized.value();
+  }
+
+  public void incrSnapKeyReclaimIntervalFallback() {
+    this.snapKeyReclaimIntervalFallback.incr(1L);
+  }
+
+  public long getSnapKeyReclaimIntervalFallback() {
+    return snapKeyReclaimIntervalFallback.value();
   }
 
   public synchronized TransactionInfo getLastAOSTransactionInfo() {

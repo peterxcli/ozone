@@ -520,7 +520,9 @@ public class S3MultipartUploadCompleteRequest extends OMKeyRequest {
         builder.setTags(dbOpenKeyInfo.getTags());
       }
     }
-    return builder.setUpdateID(trxnLogIndex).build();
+    return builder.setUpdateID(trxnLogIndex)
+        .setSeqNumMin(trxnLogIndex)
+        .build();
   }
 
   protected String getDBOzoneKey(OMMetadataManager omMetadataManager,

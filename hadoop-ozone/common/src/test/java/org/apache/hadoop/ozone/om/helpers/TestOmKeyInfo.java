@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -41,6 +42,7 @@ import org.apache.hadoop.hdds.protocol.proto.HddsProtos.ReplicationFactor;
 import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.scm.pipeline.PipelineID;
 import org.apache.hadoop.ozone.ClientVersion;
+import org.apache.hadoop.ozone.OmUtils;
 import org.apache.hadoop.ozone.OzoneAcl;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo.Builder;
@@ -71,6 +73,62 @@ public class TestOmKeyInfo {
         metadata -> metadata.put(OzoneConsts.HSYNC_CLIENT_ID, "clientid"));
     assertTrue(key.isHsync());
     assertEquals(5678L, key.getExpectedDataGeneration());
+  }
+
+  @Test
+  public void protobufConversionPreservesSeqNumIntervalPresence()
+      throws IOException {
+    OmKeyInfo key = createOmKeyInfo(
+        RatisReplicationConfig.getInstance(ReplicationFactor.THREE));
+    OzoneManagerProtocolProtos.KeyInfo proto =
+        key.getProtobuf(ClientVersion.CURRENT_VERSION);
+    assertFalse(proto.hasSeqNumMin());
+    assertFalse(proto.hasSeqNumMax());
+
+    OmKeyInfo recovered = OmKeyInfo.getFromProtobuf(proto);
+    assertNull(recovered.getSeqNumMin());
+    assertNull(recovered.getSeqNumMax());
+    assertFalse(recovered.hasSeqNumMin());
+    assertFalse(recovered.hasSeqNumMax());
+
+    key = key.toBuilder()
+        .setSeqNumMin(1234L)
+        .setSeqNumMax(5678L)
+        .build();
+    proto = key.getProtobuf(ClientVersion.CURRENT_VERSION);
+    assertTrue(proto.hasSeqNumMin());
+    assertTrue(proto.hasSeqNumMax());
+    assertEquals(1234L, proto.getSeqNumMin());
+    assertEquals(5678L, proto.getSeqNumMax());
+
+    recovered = OmKeyInfo.getFromProtobuf(proto);
+    assertEquals(1234L, recovered.getSeqNumMin());
+    assertEquals(5678L, recovered.getSeqNumMax());
+    assertTrue(recovered.hasSeqNumMin());
+    assertTrue(recovered.hasSeqNumMax());
+    assertEquals(key, recovered);
+  }
+
+  @Test
+  public void prepareKeyForDeletePreservesSeqNumMinAndSetsSeqNumMax() {
+    OmKeyInfo key = createOmKeyInfo(
+        RatisReplicationConfig.getInstance(ReplicationFactor.THREE))
+        .toBuilder()
+        .setSeqNumMin(11L)
+        .build();
+
+    RepeatedOmKeyInfo deletedKeyInfo =
+        OmUtils.prepareKeyForDelete(1L, key, 22L);
+    OmKeyInfo deletedKey = deletedKeyInfo.getOmKeyInfoList().get(0);
+    assertEquals(11L, deletedKey.getSeqNumMin());
+    assertEquals(22L, deletedKey.getSeqNumMax());
+
+    key = createOmKeyInfo(
+        RatisReplicationConfig.getInstance(ReplicationFactor.THREE));
+    deletedKeyInfo = OmUtils.prepareKeyForDelete(1L, key, 22L);
+    deletedKey = deletedKeyInfo.getOmKeyInfoList().get(0);
+    assertNull(deletedKey.getSeqNumMin());
+    assertNull(deletedKey.getSeqNumMax());
   }
 
   @Test
