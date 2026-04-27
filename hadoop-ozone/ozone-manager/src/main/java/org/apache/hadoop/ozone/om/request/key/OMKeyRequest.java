@@ -1185,6 +1185,7 @@ public abstract class OMKeyRequest extends OMClientRequest {
     if (keyInfo == null) {
       return deleteMap;
     }
+    keyInfo = prepareKeyInfoForDeleteMap(trxnLogIndex, keyInfo);
     final long pseudoObjId = om.getObjectIdFromTxId(trxnLogIndex);
     final String delKeyName = om.getMetadataManager().getOzoneDeletePathKey(pseudoObjId, ozoneKey);
     if (deleteMap == null) {
@@ -1193,6 +1194,17 @@ public abstract class OMKeyRequest extends OMClientRequest {
     deleteMap.computeIfAbsent(delKeyName, key -> new RepeatedOmKeyInfo(bucketId))
         .addOmKeyInfo(keyInfo);
     return deleteMap;
+  }
+
+  protected static OmKeyInfo prepareKeyInfoForDeleteMap(long trxnLogIndex, OmKeyInfo keyInfo) {
+    if (keyInfo.getObjectID() == OBJECT_ID_RECLAIM_BLOCKS) {
+      return keyInfo.toBuilder()
+          .setUpdateID(trxnLogIndex)
+          .setSeqNumMin(trxnLogIndex)
+          .setSeqNumMax(trxnLogIndex)
+          .build();
+    }
+    return keyInfo;
   }
 
   /**
