@@ -129,6 +129,7 @@ public class HddsDispatcher implements ContainerDispatcher, Auditor {
         null);
   }
 
+  @SuppressWarnings("checkstyle:ParameterNumber")
   public HddsDispatcher(ConfigurationSource config, ContainerSet contSet,
       VolumeSet volumes, Map<ContainerType, Handler> handlers,
       StateContext context, ContainerMetrics metrics,

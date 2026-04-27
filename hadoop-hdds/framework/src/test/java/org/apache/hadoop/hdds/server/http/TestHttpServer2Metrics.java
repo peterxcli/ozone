@@ -17,12 +17,12 @@
 
 package org.apache.hadoop.hdds.server.http;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.HttpServerIdleThreadCount;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.HttpServerMaxThreadCount;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.HttpServerThreadCount;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.HttpServerThreadQueueWaitingTaskCount;
 import static org.apache.hadoop.hdds.server.http.HttpServer2Metrics.HttpServer2MetricsInfo.SERVER_NAME;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.anyString;
@@ -104,11 +104,7 @@ public class TestHttpServer2Metrics {
     try {
       HttpServer2Metrics secondMetrics = assertDoesNotThrow(
           () -> HttpServer2Metrics.create(secondPool, "hddsDatanode"));
-      try {
-        // registration is the behavior under test
-      } finally {
-        secondMetrics.unRegister();
-      }
+      secondMetrics.unRegister();
     } finally {
       firstMetrics.unRegister();
     }

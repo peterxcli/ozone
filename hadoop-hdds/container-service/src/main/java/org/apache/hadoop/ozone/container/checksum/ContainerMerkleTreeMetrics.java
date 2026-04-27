@@ -27,6 +27,7 @@ import org.apache.hadoop.metrics2.lib.MutableRate;
 /**
  * Class to collect metrics related to container merkle tree.
  */
+@SuppressWarnings("FinalClass")
 public class ContainerMerkleTreeMetrics {
   private static final String METRICS_SOURCE_NAME = ContainerMerkleTreeMetrics.class.getSimpleName();
   private final String sourceName;

@@ -30,7 +30,7 @@ import org.apache.hadoop.metrics2.lib.MutableGaugeLong;
  **/
 @InterfaceAudience.Private
 @Metrics(about = "Background Volume Scanner Metrics", context = "dfs")
-public class BackgroundVolumeScannerMetrics {
+public final class BackgroundVolumeScannerMetrics {
   public static final String SOURCE_NAME = BackgroundVolumeScannerMetrics.class.getSimpleName();
   private final String sourceName;
 

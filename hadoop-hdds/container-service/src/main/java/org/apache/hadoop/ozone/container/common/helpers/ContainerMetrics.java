@@ -47,7 +47,7 @@ import org.apache.hadoop.ozone.util.MetricUtil;
  */
 @InterfaceAudience.Private
 @Metrics(about = "Storage Container DataNode Metrics", context = "dfs")
-public class ContainerMetrics implements Closeable {
+public final class ContainerMetrics implements Closeable {
   public static final String STORAGE_CONTAINER_METRICS =
       "StorageContainerMetrics";
   private final String sourceName;

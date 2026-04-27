@@ -31,7 +31,7 @@ import org.apache.hadoop.metrics2.lib.MutableGaugeLong;
  */
 @InterfaceAudience.Private
 @Metrics(about = "DB checkpoint Metrics", context = "dfs")
-public class DBCheckpointMetrics {
+public final class DBCheckpointMetrics {
   private static final String SOURCE_NAME_PREFIX =
       DBCheckpointMetrics.class.getSimpleName();
   private final String sourceName;
