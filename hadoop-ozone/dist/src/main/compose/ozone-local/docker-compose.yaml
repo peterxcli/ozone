@@ -26,7 +26,30 @@ services:
       AWS_SECRET_ACCESS_KEY: admin123
     ports:
       - 9878:9878
-    command: ["ozone", "local", "run", "--s3g-port", "9878"]
+      - 9888:9888
+    command:
+      - ozone
+      - local
+      - run
+      - --s3g-port
+      - "9878"
+      - --with-recon
+      - --recon-port
+      - "9888"
+
+  console:
+    # Experimental: this third-party MinIO admin UI starts against Ozone S3G,
+    # but its login flow expects MinIO-specific STS/admin behavior.
+    image: ghcr.io/georgmangold/console:v1.9.1
+    profiles:
+      - console
+    depends_on:
+      - local
+    environment:
+      CONSOLE_MINIO_SERVER: http://local:9878
+      CONSOLE_MINIO_REGION: us-east-1
+    ports:
+      - 9090:9090
 
 volumes:
   ozone-local-data:

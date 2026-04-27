@@ -60,6 +60,7 @@ docker-compose() {
 
 wait_for_safemode_exit() {
   wait_for_port 127.0.0.1 9878 180
+  wait_for_port 127.0.0.1 9888 180
 }
 
 wait_for_om_leader() {

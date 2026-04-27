@@ -45,12 +45,14 @@ class TestLocalOzoneClusterConfig {
         config.getDatanodes());
     assertFalse(config.isEphemeral());
     assertTrue(config.isS3gEnabled());
+    assertFalse(config.isReconEnabled());
     assertEquals(LocalOzoneClusterConfig.DEFAULT_HOST, config.getHost());
     assertEquals(LocalOzoneClusterConfig.DEFAULT_BIND_HOST,
         config.getBindHost());
     assertEquals(0, config.getScmPort());
     assertEquals(0, config.getOmPort());
     assertEquals(0, config.getS3gPort());
+    assertEquals(0, config.getReconPort());
     assertEquals(LocalOzoneClusterConfig.DEFAULT_STARTUP_TIMEOUT,
         config.getStartupTimeout());
     assertEquals(LocalOzoneClusterConfig.DEFAULT_S3_ACCESS_KEY,
@@ -69,11 +71,13 @@ class TestLocalOzoneClusterConfig {
         .setDatanodes(3)
         .setEphemeral(true)
         .setS3gEnabled(false)
+        .setReconEnabled(true)
         .setHost("localhost")
         .setBindHost("127.0.0.1")
         .setScmPort(9860)
         .setOmPort(9862)
         .setS3gPort(9878)
+        .setReconPort(9888)
         .setStartupTimeout(Duration.ofSeconds(45))
         .setS3AccessKey("dev")
         .setS3SecretKey("secret")
@@ -85,11 +89,13 @@ class TestLocalOzoneClusterConfig {
     assertEquals(3, config.getDatanodes());
     assertTrue(config.isEphemeral());
     assertFalse(config.isS3gEnabled());
+    assertTrue(config.isReconEnabled());
     assertEquals("localhost", config.getHost());
     assertEquals("127.0.0.1", config.getBindHost());
     assertEquals(9860, config.getScmPort());
     assertEquals(9862, config.getOmPort());
     assertEquals(9878, config.getS3gPort());
+    assertEquals(9888, config.getReconPort());
     assertEquals(Duration.ofSeconds(45), config.getStartupTimeout());
     assertEquals("dev", config.getS3AccessKey());
     assertEquals("secret", config.getS3SecretKey());

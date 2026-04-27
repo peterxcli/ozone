@@ -34,6 +34,10 @@ public interface LocalOzoneRuntime extends AutoCloseable {
 
   String getS3Endpoint();
 
+  int getReconPort();
+
+  String getReconEndpoint();
+
   @Override
   void close() throws Exception;
 }

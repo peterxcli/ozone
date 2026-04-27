@@ -17,13 +17,15 @@
 
 package org.apache.hadoop.ozone.local;
 
+import static org.apache.hadoop.hdds.recon.ReconConfigKeys.OZONE_RECON_HTTP_ADDRESS_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_CLIENT_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_METADATA_DIRS;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_ADDRESS_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTP_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.recon.ReconServerConfigKeys.OZONE_RECON_DB_DIR;
 import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTPS_ADDRESS_KEY;
-import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTP_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTP_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTPS_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_WEBADMIN_HTTP_ADDRESS_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -51,6 +53,8 @@ class TestLocalOzoneCluster {
         .setScmPort(9860)
         .setOmPort(9862)
         .setS3gPort(9878)
+        .setReconEnabled(true)
+        .setReconPort(9888)
         .build();
 
     try (LocalOzoneCluster cluster =
@@ -64,9 +68,29 @@ class TestLocalOzoneCluster {
       assertTrue(conf.get(OZONE_SCM_CLIENT_ADDRESS_KEY).endsWith(":9860"));
       assertTrue(conf.get(OZONE_OM_ADDRESS_KEY).endsWith(":9862"));
       assertTrue(conf.get(OZONE_S3G_HTTP_ADDRESS_KEY).endsWith(":9878"));
+      assertTrue(conf.get(OZONE_RECON_HTTP_ADDRESS_KEY).endsWith(":9888"));
       assertEquals(9860, prepared.getScmPort());
       assertEquals(9862, prepared.getOmPort());
       assertEquals(9878, prepared.getS3gPort());
+      assertEquals(9888, prepared.getReconPort());
+    }
+  }
+
+  @Test
+  void prepareConfigurationSetsReconStorageWhenEnabled() throws Exception {
+    LocalOzoneClusterConfig config = LocalOzoneClusterConfig.builder(
+            tempDir.resolve("local-ozone"))
+        .setReconEnabled(true)
+        .setReconPort(9888)
+        .build();
+
+    try (LocalOzoneCluster cluster =
+             new LocalOzoneCluster(config, new OzoneConfiguration())) {
+      OzoneConfiguration conf = cluster.prepareConfiguration().getConfiguration();
+
+      assertTrue(conf.get(OZONE_RECON_DB_DIR)
+          .startsWith(tempDir.resolve("local-ozone").resolve("recon").toString()));
+      assertTrue(conf.get(OZONE_RECON_HTTP_ADDRESS_KEY).endsWith(":9888"));
     }
   }
 

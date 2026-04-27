@@ -40,11 +40,13 @@ public final class LocalOzoneClusterConfig {
   private final int datanodes;
   private final boolean ephemeral;
   private final boolean s3gEnabled;
+  private final boolean reconEnabled;
   private final String host;
   private final String bindHost;
   private final int scmPort;
   private final int omPort;
   private final int s3gPort;
+  private final int reconPort;
   private final Duration startupTimeout;
   private final String s3AccessKey;
   private final String s3SecretKey;
@@ -56,11 +58,13 @@ public final class LocalOzoneClusterConfig {
     datanodes = builder.datanodes;
     ephemeral = builder.ephemeral;
     s3gEnabled = builder.s3gEnabled;
+    reconEnabled = builder.reconEnabled;
     host = Objects.requireNonNull(builder.host, "host");
     bindHost = Objects.requireNonNull(builder.bindHost, "bindHost");
     scmPort = builder.scmPort;
     omPort = builder.omPort;
     s3gPort = builder.s3gPort;
+    reconPort = builder.reconPort;
     startupTimeout = Objects.requireNonNull(builder.startupTimeout,
         "startupTimeout");
     s3AccessKey = Objects.requireNonNull(builder.s3AccessKey, "s3AccessKey");
@@ -88,6 +92,10 @@ public final class LocalOzoneClusterConfig {
     return s3gEnabled;
   }
 
+  public boolean isReconEnabled() {
+    return reconEnabled;
+  }
+
   public String getHost() {
     return host;
   }
@@ -106,6 +114,10 @@ public final class LocalOzoneClusterConfig {
 
   public int getS3gPort() {
     return s3gPort;
+  }
+
+  public int getReconPort() {
+    return reconPort;
   }
 
   public Duration getStartupTimeout() {
@@ -151,11 +163,13 @@ public final class LocalOzoneClusterConfig {
     private int datanodes = DEFAULT_DATANODES;
     private boolean ephemeral;
     private boolean s3gEnabled = true;
+    private boolean reconEnabled;
     private String host = DEFAULT_HOST;
     private String bindHost = DEFAULT_BIND_HOST;
     private int scmPort;
     private int omPort;
     private int s3gPort;
+    private int reconPort;
     private Duration startupTimeout = DEFAULT_STARTUP_TIMEOUT;
     private String s3AccessKey = DEFAULT_S3_ACCESS_KEY;
     private String s3SecretKey = DEFAULT_S3_SECRET_KEY;
@@ -185,6 +199,11 @@ public final class LocalOzoneClusterConfig {
       return this;
     }
 
+    public Builder setReconEnabled(boolean value) {
+      reconEnabled = value;
+      return this;
+    }
+
     public Builder setHost(String value) {
       host = value;
       return this;
@@ -207,6 +226,11 @@ public final class LocalOzoneClusterConfig {
 
     public Builder setS3gPort(int value) {
       s3gPort = value;
+      return this;
+    }
+
+    public Builder setReconPort(int value) {
+      reconPort = value;
       return this;
     }
 

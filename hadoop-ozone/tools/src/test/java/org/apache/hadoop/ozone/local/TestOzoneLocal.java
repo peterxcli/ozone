@@ -72,6 +72,7 @@ class TestOzoneLocal {
     assertEquals(LocalOzoneClusterConfig.DEFAULT_S3_SECRET_KEY,
         config.getS3SecretKey());
     assertTrue(config.isS3gEnabled());
+    assertFalse(config.isReconEnabled());
   }
 
   @Test
@@ -85,6 +86,8 @@ class TestOzoneLocal {
     env.put(OzoneLocal.ENV_SCM_PORT, "9860");
     env.put(OzoneLocal.ENV_OM_PORT, "9862");
     env.put(OzoneLocal.ENV_S3G_ENABLED, "false");
+    env.put(OzoneLocal.ENV_RECON_ENABLED, "true");
+    env.put(OzoneLocal.ENV_RECON_PORT, "9888");
     env.put(OzoneLocal.ENV_EPHEMERAL, "true");
     env.put(OzoneLocal.ENV_STARTUP_TIMEOUT, "120s");
     env.put(OzoneLocal.ENV_S3_ACCESS_KEY, "dev");
@@ -104,6 +107,8 @@ class TestOzoneLocal {
     assertEquals("0.0.0.0", config.getBindHost());
     assertEquals(9860, config.getScmPort());
     assertEquals(9862, config.getOmPort());
+    assertTrue(config.isReconEnabled());
+    assertEquals(9888, config.getReconPort());
     assertEquals(Duration.ofSeconds(120), config.getStartupTimeout());
     assertEquals("dev", config.getS3AccessKey());
     assertEquals("devsecret", config.getS3SecretKey());
@@ -187,9 +192,26 @@ class TestOzoneLocal {
   }
 
   @Test
+  void commandExecutionPrintsReconSummaryWhenEnabled() throws Exception {
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    StubRuntime runtime = new StubRuntime("localhost", 9860, 9862,
+        "http://localhost:9878", "http://localhost:9888");
+    TestableRunCommand command = new TestableRunCommand(
+        Collections.emptyMap(), runtime);
+    CommandLine cli = new CommandLine(command);
+    cli.setOut(outputWriter(output));
+
+    int exitCode = cli.execute("--with-recon");
+
+    assertEquals(0, exitCode);
+    String text = output.toString(UTF_8.name());
+    assertTrue(text.contains("Recon endpoint: http://localhost:9888"));
+  }
+
+  @Test
   void commandExecutionOmitsS3SummaryWhenDisabled() throws Exception {
     ByteArrayOutputStream output = new ByteArrayOutputStream();
-    StubRuntime runtime = new StubRuntime("localhost", 9860, 9862, "");
+    StubRuntime runtime = new StubRuntime("localhost", 9860, 9862, "", "");
     TestableRunCommand command = new TestableRunCommand(
         Collections.emptyMap(), runtime);
     CommandLine cli = new CommandLine(command);
@@ -225,7 +247,7 @@ class TestOzoneLocal {
     }
 
     @Override
-    void awaitShutdown(LocalOzoneRuntime runtime) {
+    void awaitShutdown(LocalOzoneRuntime localRuntime) {
     }
   }
 
@@ -235,15 +257,22 @@ class TestOzoneLocal {
     private final int scmPort;
     private final int omPort;
     private final String s3Endpoint;
+    private final String reconEndpoint;
     private boolean started;
     private boolean closed;
 
     private StubRuntime(String displayHost, int scmPort, int omPort,
         String s3Endpoint) {
+      this(displayHost, scmPort, omPort, s3Endpoint, "");
+    }
+
+    private StubRuntime(String displayHost, int scmPort, int omPort,
+        String s3Endpoint, String reconEndpoint) {
       this.displayHost = displayHost;
       this.scmPort = scmPort;
       this.omPort = omPort;
       this.s3Endpoint = s3Endpoint;
+      this.reconEndpoint = reconEndpoint;
     }
 
     @Override
@@ -274,6 +303,16 @@ class TestOzoneLocal {
     @Override
     public String getS3Endpoint() {
       return s3Endpoint;
+    }
+
+    @Override
+    public int getReconPort() {
+      return 0;
+    }
+
+    @Override
+    public String getReconEndpoint() {
+      return reconEndpoint;
     }
 
     @Override

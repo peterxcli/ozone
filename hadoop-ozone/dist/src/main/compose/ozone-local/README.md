@@ -29,7 +29,8 @@ docker-compose logs -f local
 ```
 
 The startup summary prints the suggested local AWS settings. The default S3
-endpoint from this example is `http://127.0.0.1:9878`.
+endpoint from this example is `http://127.0.0.1:9878`. Recon is also started
+by `ozone local run` and is available at `http://127.0.0.1:9888`.
 
 Example AWS CLI invocation from the host:
 
@@ -40,6 +41,18 @@ AWS_REGION=us-east-1 \
 aws --endpoint-url http://127.0.0.1:9878 s3 ls
 ```
 
+Start the optional MinIO-compatible console sidecar:
+
+```bash
+docker-compose --profile console up -d
+```
+
+The console is available at `http://127.0.0.1:9090`. This console is a
+third-party MinIO admin UI. It starts against the local Ozone S3 endpoint, but
+its login flow expects MinIO-specific STS/admin behavior. The local Ozone S3
+credentials, `admin` / `admin123`, are valid for AWS CLI and SDK access, but
+they do not currently log into this console sidecar.
+
 Stop and remove the container and its named volume:
 
 ```bash
@@ -48,10 +61,10 @@ docker-compose down -v
 
 ## Advanced configuration
 
-The minimal Compose file pins the S3 Gateway port with
-`ozone local run --s3g-port 9878` so the host can publish a stable S3 endpoint.
-Additional local runtime settings can still be provided with `OZONE_LOCAL_*`
-environment variables, for example:
+The minimal Compose file pins the S3 Gateway and Recon ports with
+`ozone local run --s3g-port 9878 --with-recon --recon-port 9888` so the host can
+publish stable local endpoints. Additional local runtime settings can still be
+provided with `OZONE_LOCAL_*` environment variables, for example:
 
 ```yaml
 environment:
@@ -59,5 +72,6 @@ environment:
   AWS_SECRET_ACCESS_KEY: admin123
   OZONE_LOCAL_DATANODES: 2
   OZONE_LOCAL_FORMAT: always
+  OZONE_LOCAL_RECON_ENABLED: true
   OZONE_LOCAL_STARTUP_TIMEOUT: 180s
 ```

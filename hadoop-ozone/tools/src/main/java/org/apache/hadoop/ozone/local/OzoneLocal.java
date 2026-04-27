@@ -61,6 +61,8 @@ public class OzoneLocal extends GenericCli {
   static final String ENV_OM_PORT = "OZONE_LOCAL_OM_PORT";
   static final String ENV_S3G_ENABLED = "OZONE_LOCAL_S3G_ENABLED";
   static final String ENV_S3G_PORT = "OZONE_LOCAL_S3G_PORT";
+  static final String ENV_RECON_ENABLED = "OZONE_LOCAL_RECON_ENABLED";
+  static final String ENV_RECON_PORT = "OZONE_LOCAL_RECON_PORT";
   static final String ENV_EPHEMERAL = "OZONE_LOCAL_EPHEMERAL";
   static final String ENV_STARTUP_TIMEOUT = "OZONE_LOCAL_STARTUP_TIMEOUT";
   static final String ENV_S3_ACCESS_KEY = "OZONE_LOCAL_S3_ACCESS_KEY";
@@ -74,7 +76,7 @@ public class OzoneLocal extends GenericCli {
   }
 
   @Command(name = "run",
-      description = "Start SCM, OM, datanodes, and optional S3 Gateway in one process")
+      description = "Start SCM, OM, datanodes, and optional gateways in one process")
   static class RunCommand implements Callable<Void> {
 
     @ParentCommand
@@ -117,9 +119,17 @@ public class OzoneLocal extends GenericCli {
         description = "S3 Gateway HTTP port (0 means auto-allocate)")
     private Integer s3gPort;
 
+    @Option(names = "--recon-port",
+        description = "Recon HTTP port (0 means auto-allocate)")
+    private Integer reconPort;
+
     @Option(names = "--without-s3g",
         description = "Disable S3 Gateway")
     private boolean withoutS3g;
+
+    @Option(names = "--with-recon",
+        description = "Start Recon management and monitoring UI")
+    private boolean withRecon;
 
     @Option(names = "--ephemeral",
         description = "Delete the data directory on shutdown")
@@ -185,9 +195,14 @@ public class OzoneLocal extends GenericCli {
           : parsePort(environment.get(ENV_OM_PORT), ENV_OM_PORT, 0);
       int resolvedS3gPort = s3gPort != null ? validatePort(s3gPort, "--s3g-port")
           : parsePort(environment.get(ENV_S3G_PORT), ENV_S3G_PORT, 0);
+      int resolvedReconPort = reconPort != null
+          ? validatePort(reconPort, "--recon-port")
+          : parsePort(environment.get(ENV_RECON_PORT), ENV_RECON_PORT, 0);
 
       boolean resolvedS3gEnabled = withoutS3g ? false
           : parseBoolean(environment.get(ENV_S3G_ENABLED), ENV_S3G_ENABLED, true);
+      boolean resolvedReconEnabled = withRecon || parseBoolean(
+          environment.get(ENV_RECON_ENABLED), ENV_RECON_ENABLED, false);
       boolean resolvedEphemeral = ephemeral || parseBoolean(
           environment.get(ENV_EPHEMERAL), ENV_EPHEMERAL, false);
 
@@ -219,6 +234,8 @@ public class OzoneLocal extends GenericCli {
           .setOmPort(resolvedOmPort)
           .setS3gPort(resolvedS3gPort)
           .setS3gEnabled(resolvedS3gEnabled)
+          .setReconPort(resolvedReconPort)
+          .setReconEnabled(resolvedReconEnabled)
           .setEphemeral(resolvedEphemeral)
           .setStartupTimeout(resolvedStartupTimeout)
           .setS3AccessKey(resolvedAccessKey)
@@ -343,7 +360,15 @@ public class OzoneLocal extends GenericCli {
     }
 
     private static boolean isBlank(String value) {
-      return value == null || value.trim().isEmpty();
+      if (value == null) {
+        return true;
+      }
+      for (int index = 0; index < value.length(); index++) {
+        if (!Character.isWhitespace(value.charAt(index))) {
+          return false;
+        }
+      }
+      return true;
     }
 
     LocalOzoneRuntime createRuntime(LocalOzoneClusterConfig config,
@@ -393,6 +418,9 @@ public class OzoneLocal extends GenericCli {
         lines.add("AWS_S3_FORCE_PATH_STYLE=true");
         lines.add("These credentials are pre-provisioned for the local S3 "
             + "gateway.");
+      }
+      if (config.isReconEnabled()) {
+        lines.add("Recon endpoint: " + runtime.getReconEndpoint());
       }
       lines.add("Press Ctrl+C to stop.");
       return lines;
