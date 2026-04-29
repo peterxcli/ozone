@@ -71,4 +71,4 @@ start_docker_env 1
 
 execute_robot_test local \
   -v ENDPOINT_URL:http://127.0.0.1:9878 \
-  s3/locals3.robot
+  ozonelocal/locals3.robot

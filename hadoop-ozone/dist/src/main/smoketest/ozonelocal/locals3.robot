@@ -17,7 +17,7 @@
 Documentation       Minimal AWS CLI smoke for packaged ozone local S3.
 Library             OperatingSystem
 Resource            ../commonlib.robot
-Resource            commonawslib.robot
+Resource            ../s3/commonawslib.robot
 Test Timeout        5 minutes
 Suite Setup         Setup local ozone S3 smoke
 
