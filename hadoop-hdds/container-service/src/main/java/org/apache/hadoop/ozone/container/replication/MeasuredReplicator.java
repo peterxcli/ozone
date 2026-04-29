@@ -37,6 +37,7 @@ public class MeasuredReplicator implements ContainerReplicator, AutoCloseable {
 
   private final ContainerReplicator delegate;
   private final String name;
+  private final String metricsSourceName;
 
   @Metric(about = "Number of successful replication tasks")
   private MutableCounterLong success;
@@ -60,14 +61,24 @@ public class MeasuredReplicator implements ContainerReplicator, AutoCloseable {
   private MutableGaugeLong transferredBytes;
 
   public MeasuredReplicator(ContainerReplicator delegate, String name) {
+    this(delegate, name, null);
+  }
+
+  public MeasuredReplicator(ContainerReplicator delegate, String name,
+      String component) {
     this.delegate = delegate;
     this.name = name;
-    DefaultMetricsSystem.instance().register(metricsName(),
+    this.metricsSourceName = buildMetricsName(name, component);
+    DefaultMetricsSystem.instance().register(metricsSourceName,
         "Closed container " + name + " replication metrics", this);
   }
 
-  private String metricsName() {
-    return NAME + "/" + name;
+  private static String buildMetricsName(String name, String component) {
+    if (component == null) {
+      return NAME + "/" + name;
+    }
+    return NAME + "/" + component.replaceAll("[^A-Za-z0-9]+", "")
+        + "/" + name;
   }
 
   @Override
@@ -92,7 +103,7 @@ public class MeasuredReplicator implements ContainerReplicator, AutoCloseable {
 
   @Override
   public void close() throws Exception {
-    DefaultMetricsSystem.instance().unregisterSource(metricsName());
+    DefaultMetricsSystem.instance().unregisterSource(metricsSourceName);
   }
 
   MutableCounterLong getSuccess() {

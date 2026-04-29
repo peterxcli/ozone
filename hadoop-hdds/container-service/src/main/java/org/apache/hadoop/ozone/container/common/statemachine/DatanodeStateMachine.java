@@ -161,6 +161,7 @@ public class DatanodeStateMachine implements Closeable {
     this.hddsDatanodeStopService = hddsDatanodeStopService;
     this.conf = conf;
     this.datanodeDetails = datanodeDetails;
+    String metricsSourceComponent = datanodeDetails.getUuidString();
 
     Clock clock = Clock.system(ZoneId.systemDefault());
     // Expected to be initialized already.
@@ -168,7 +169,7 @@ public class DatanodeStateMachine implements Closeable {
         datanodeDetails.getUuidString());
 
     layoutVersionManager = new HDDSLayoutVersionManager(
-        layoutStorage.getLayoutVersion());
+        layoutStorage.getLayoutVersion(), metricsSourceComponent);
     upgradeFinalizer = new DataNodeUpgradeFinalizer(layoutVersionManager);
     VersionedDatanodeFeatures.initialize(layoutVersionManager);
 
@@ -179,7 +180,8 @@ public class DatanodeStateMachine implements Closeable {
             .setNameFormat(threadNamePrefix +
                 "DatanodeStateMachineTaskThread-%d")
             .build());
-    connectionManager = new SCMConnectionManager(conf);
+    connectionManager = new SCMConnectionManager(conf,
+        metricsSourceComponent);
     context = new StateContext(this.conf, DatanodeStates.getInitState(), this,
         threadNamePrefix);
     volumeChoosingPolicy = VolumeChoosingPolicyFactory.getPolicy(conf);
@@ -209,8 +211,10 @@ public class DatanodeStateMachine implements Closeable {
         new GrpcContainerUploader(conf, certClient, container.getController())
     );
 
-    pullReplicatorWithMetrics = new MeasuredReplicator(pullReplicator, "pull");
-    pushReplicatorWithMetrics = new MeasuredReplicator(pushReplicator, "push");
+    pullReplicatorWithMetrics = new MeasuredReplicator(
+        pullReplicator, "pull", metricsSourceComponent);
+    pushReplicatorWithMetrics = new MeasuredReplicator(
+        pushReplicator, "push", metricsSourceComponent);
 
     ReplicationConfig replicationConfig =
         conf.getObject(ReplicationConfig.class);
@@ -222,9 +226,11 @@ public class DatanodeStateMachine implements Closeable {
         .build();
 
     replicationSupervisorMetrics =
-        ReplicationSupervisorMetrics.create(supervisor);
+        ReplicationSupervisorMetrics.create(supervisor,
+            metricsSourceComponent);
 
-    ecReconstructionMetrics = ECReconstructionMetrics.create();
+    ecReconstructionMetrics = ECReconstructionMetrics.create(
+        metricsSourceComponent);
     ecReconstructionCoordinator = new ECReconstructionCoordinator(
         conf, certClient, secretKeyClient, context, ecReconstructionMetrics,
         threadNamePrefix);
@@ -265,7 +271,7 @@ public class DatanodeStateMachine implements Closeable {
             dnConf.getContainerCloseThreads(),
             dnConf.getCommandQueueLimit(), threadNamePrefix))
         .addHandler(new DeleteBlocksCommandHandler(getContainer(),
-            conf, dnConf, threadNamePrefix))
+            conf, dnConf, threadNamePrefix, metricsSourceComponent))
         .addHandler(new ReplicateContainerCommandHandler(conf, supervisor,
             pullReplicatorWithMetrics, pushReplicatorWithMetrics))
         .addHandler(reconstructECContainersCommandHandler)
@@ -292,7 +298,8 @@ public class DatanodeStateMachine implements Closeable {
     dispatcherBuilder
         .setConnectionManager(connectionManager)
         .setContainer(container)
-        .setContext(context);
+        .setContext(context)
+        .setMetricsSourceComponent(metricsSourceComponent);
 
     commandDispatcher = dispatcherBuilder.build();
 
@@ -305,8 +312,9 @@ public class DatanodeStateMachine implements Closeable {
         .addThreadNamePrefix(threadNamePrefix)
         .build();
 
-    queueMetrics = DatanodeQueueMetrics.create(this);
-    nettyMetrics = NettyMetrics.create();
+    queueMetrics = DatanodeQueueMetrics.create(this, metricsSourceComponent);
+    nettyMetrics = NettyMetrics.create(
+        "Datanode-" + datanodeDetails.getUuidString());
   }
 
   @VisibleForTesting
@@ -477,7 +485,7 @@ public class DatanodeStateMachine implements Closeable {
     }
 
     if (queueMetrics != null) {
-      DatanodeQueueMetrics.unRegister();
+      queueMetrics.unRegister();
     }
 
     if (nettyMetrics != null) {

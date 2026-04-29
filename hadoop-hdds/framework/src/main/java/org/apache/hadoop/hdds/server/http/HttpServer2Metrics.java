@@ -38,17 +38,22 @@ public final class HttpServer2Metrics implements MetricsSource {
 
   private final QueuedThreadPool threadPool;
   private final String name;
+  private final String sourceName;
 
-  private HttpServer2Metrics(QueuedThreadPool threadPool, String name) {
+  private HttpServer2Metrics(QueuedThreadPool threadPool, String name,
+      String sourceName) {
     this.threadPool = threadPool;
     this.name = name;
+    this.sourceName = sourceName;
   }
 
   public static HttpServer2Metrics create(
       QueuedThreadPool threadPool, String name) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    return ms.register(NAME, "HttpServer2 Metrics",
-        new HttpServer2Metrics(threadPool, name));
+    String sourceName = NAME + "-" + Integer.toHexString(
+        System.identityHashCode(threadPool));
+    return ms.register(sourceName, "HttpServer2 Metrics",
+        new HttpServer2Metrics(threadPool, name, sourceName));
   }
 
   @Override
@@ -69,7 +74,7 @@ public final class HttpServer2Metrics implements MetricsSource {
 
   public void unRegister() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(NAME);
+    ms.unregisterSource(sourceName);
   }
 
   enum HttpServer2MetricsInfo implements MetricsInfo {

@@ -47,9 +47,10 @@ import org.apache.hadoop.ozone.util.MetricUtil;
  */
 @InterfaceAudience.Private
 @Metrics(about = "Storage Container DataNode Metrics", context = "dfs")
-public class ContainerMetrics implements Closeable {
+public final class ContainerMetrics implements Closeable {
   public static final String STORAGE_CONTAINER_METRICS =
       "StorageContainerMetrics";
+  private final String sourceName;
   @Metric private MutableCounterLong numOps;
   @Metric private MutableCounterLong containerDeleteFailedNonEmpty;
   @Metric private MutableCounterLong containerDeleteFailedBlockCountNotZero;
@@ -69,7 +70,8 @@ public class ContainerMetrics implements Closeable {
   @SuppressWarnings("PMD.SingularField")
   private MetricsRegistry registry;
 
-  public ContainerMetrics(int[] intervals) {
+  private ContainerMetrics(String sourceName, int[] intervals) {
+    this.sourceName = sourceName;
     final int len = intervals.length;
     MutableQuantiles[] latQuantiles = new MutableQuantiles[len];
     this.numOpsArray = new EnumMap<>(ContainerProtos.Type.class);
@@ -77,7 +79,7 @@ public class ContainerMetrics implements Closeable {
     this.opsForClosedContainer = new EnumMap<>(ContainerProtos.Type.class);
     this.opsLatency = new EnumMap<>(ContainerProtos.Type.class);
     this.opsLatQuantiles = new EnumMap<>(ContainerProtos.Type.class);
-    this.registry = new MetricsRegistry("StorageContainerMetrics");
+    this.registry = new MetricsRegistry(sourceName);
 
     for (ContainerProtos.Type type : ContainerProtos.Type.values()) {
       numOpsArray.put(type, registry.newCounter(
@@ -99,18 +101,38 @@ public class ContainerMetrics implements Closeable {
   }
 
   public static ContainerMetrics create(ConfigurationSource conf) {
+    return createWithSourceName(conf, STORAGE_CONTAINER_METRICS);
+  }
+
+  public static ContainerMetrics create(ConfigurationSource conf,
+      String component) {
+    return createWithSourceName(conf, buildSourceName(component));
+  }
+
+  private static ContainerMetrics createWithSourceName(ConfigurationSource conf,
+      String sourceName) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
     // Percentile measurement is off by default, by watching no intervals
     int[] intervals =
         conf.getInts(HddsConfigKeys.HDDS_METRICS_PERCENTILES_INTERVALS_KEY);
-    return ms.register(STORAGE_CONTAINER_METRICS,
+    return ms.register(sourceName,
                        "Storage Container Node Metrics",
-                       new ContainerMetrics(intervals));
+                       new ContainerMetrics(sourceName, intervals));
+  }
+
+  private static String buildSourceName(String component) {
+    return STORAGE_CONTAINER_METRICS + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   public static void remove() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
     ms.unregisterSource(STORAGE_CONTAINER_METRICS);
+  }
+
+  public void unregister() {
+    MetricsSystem ms = DefaultMetricsSystem.instance();
+    ms.unregisterSource(sourceName);
   }
 
   @Override

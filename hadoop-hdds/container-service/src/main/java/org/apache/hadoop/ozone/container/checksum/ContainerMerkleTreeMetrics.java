@@ -27,8 +27,10 @@ import org.apache.hadoop.metrics2.lib.MutableRate;
 /**
  * Class to collect metrics related to container merkle tree.
  */
+@SuppressWarnings("FinalClass")
 public class ContainerMerkleTreeMetrics {
   private static final String METRICS_SOURCE_NAME = ContainerMerkleTreeMetrics.class.getSimpleName();
+  private final String sourceName;
 
   @Metric(about = "Number of Merkle tree write failure")
   private MutableCounterLong numMerkleTreeWriteFailure;
@@ -69,19 +71,45 @@ public class ContainerMerkleTreeMetrics {
   @Metric(about = "Merkle tree diff latency")
   private MutableRate merkleTreeDiffLatencyNS;
 
+  private ContainerMerkleTreeMetrics(String sourceName) {
+    this.sourceName = sourceName;
+  }
+
   public static ContainerMerkleTreeMetrics create() {
+    return createWithSourceName(METRICS_SOURCE_NAME, true);
+  }
+
+  public static ContainerMerkleTreeMetrics create(String component) {
+    return createWithSourceName(buildSourceName(component), false);
+  }
+
+  private static ContainerMerkleTreeMetrics createWithSourceName(
+      String sourceName, boolean replaceExisting) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    MetricsSource source = ms.getSource(METRICS_SOURCE_NAME);
+    MetricsSource source = ms.getSource(sourceName);
     if (source != null) {
-      ms.unregisterSource(METRICS_SOURCE_NAME);
+      if (!replaceExisting && source instanceof ContainerMerkleTreeMetrics) {
+        return (ContainerMerkleTreeMetrics) source;
+      }
+      ms.unregisterSource(sourceName);
     }
-    return ms.register(METRICS_SOURCE_NAME, "Container Merkle Tree Metrics",
-        new ContainerMerkleTreeMetrics());
+    return ms.register(sourceName, "Container Merkle Tree Metrics",
+        new ContainerMerkleTreeMetrics(sourceName));
+  }
+
+  private static String buildSourceName(String component) {
+    return METRICS_SOURCE_NAME + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   public static void unregister() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
     ms.unregisterSource(METRICS_SOURCE_NAME);
+  }
+
+  public void unRegister() {
+    MetricsSystem ms = DefaultMetricsSystem.instance();
+    ms.unregisterSource(sourceName);
   }
 
   public void incrementMerkleTreeWriteFailures() {

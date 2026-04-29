@@ -30,8 +30,9 @@ import org.apache.hadoop.metrics2.lib.MutableGaugeLong;
  **/
 @InterfaceAudience.Private
 @Metrics(about = "Background Volume Scanner Metrics", context = "dfs")
-public class BackgroundVolumeScannerMetrics {
+public final class BackgroundVolumeScannerMetrics {
   public static final String SOURCE_NAME = BackgroundVolumeScannerMetrics.class.getSimpleName();
+  private final String sourceName;
 
   @Metric("number of volumes scanned in the last iteration")
   private MutableGaugeLong numVolumesScannedInLastIteration;
@@ -49,12 +50,28 @@ public class BackgroundVolumeScannerMetrics {
       "since the last iteration had not elapsed")
   private MutableCounterLong numIterationsSkipped;
 
-  public BackgroundVolumeScannerMetrics() {
+  private BackgroundVolumeScannerMetrics(String sourceName) {
+    this.sourceName = sourceName;
   }
 
   public static BackgroundVolumeScannerMetrics create() {
+    return createWithSourceName(SOURCE_NAME);
+  }
+
+  public static BackgroundVolumeScannerMetrics create(String component) {
+    return createWithSourceName(buildSourceName(component));
+  }
+
+  private static BackgroundVolumeScannerMetrics createWithSourceName(
+      String sourceName) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    return ms.register(SOURCE_NAME, "Background Volume Scanner Metrics", new BackgroundVolumeScannerMetrics());
+    return ms.register(sourceName, "Background Volume Scanner Metrics",
+        new BackgroundVolumeScannerMetrics(sourceName));
+  }
+
+  private static String buildSourceName(String component) {
+    return SOURCE_NAME + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
   }
 
   /**
@@ -114,6 +131,6 @@ public class BackgroundVolumeScannerMetrics {
   }
 
   public void unregister() {
-    DefaultMetricsSystem.instance().unregisterSource(SOURCE_NAME);
+    DefaultMetricsSystem.instance().unregisterSource(sourceName);
   }
 }

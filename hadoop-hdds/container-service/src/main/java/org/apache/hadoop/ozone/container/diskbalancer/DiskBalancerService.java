@@ -133,6 +133,14 @@ public class DiskBalancerService extends BackgroundService {
   public DiskBalancerService(OzoneContainer ozoneContainer,
       long serviceCheckInterval, long serviceCheckTimeout, TimeUnit timeUnit,
       int workerSize, ConfigurationSource conf) throws IOException {
+    this(ozoneContainer, serviceCheckInterval, serviceCheckTimeout, timeUnit,
+        workerSize, conf, null);
+  }
+
+  public DiskBalancerService(OzoneContainer ozoneContainer,
+      long serviceCheckInterval, long serviceCheckTimeout, TimeUnit timeUnit,
+      int workerSize, ConfigurationSource conf, String metricsSourceComponent)
+      throws IOException {
     super("DiskBalancerService", serviceCheckInterval, timeUnit, workerSize,
         serviceCheckTimeout);
     this.ozoneContainer = ozoneContainer;
@@ -155,7 +163,9 @@ public class DiskBalancerService extends BackgroundService {
 
     replicaDeletionDelay = conf.getObject(DiskBalancerConfiguration.class)
         .getReplicaDeletionDelay();
-    metrics = DiskBalancerServiceMetrics.create();
+    metrics = metricsSourceComponent == null
+        ? DiskBalancerServiceMetrics.create()
+        : DiskBalancerServiceMetrics.create(metricsSourceComponent);
 
     loadDiskBalancerInfo();
   }
@@ -827,7 +837,7 @@ public class DiskBalancerService extends BackgroundService {
   public void shutdown() {
     super.shutdown();
     if (metrics != null) {
-      DiskBalancerServiceMetrics.unRegister();
+      metrics.unregister();
     }
   }
 

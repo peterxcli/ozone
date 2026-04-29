@@ -32,17 +32,25 @@ import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
  */
 public final class NettyMetrics implements MetricsSource {
 
-  public static final String SOURCE_NAME = NettyMetrics.class.getSimpleName();
+  public static final String SOURCE_NAME_PREFIX =
+      NettyMetrics.class.getSimpleName();
+  private final String sourceName;
 
-  public static NettyMetrics create() {
+  private NettyMetrics(String sourceName) {
+    this.sourceName = sourceName;
+  }
+
+  public static NettyMetrics create(String component) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    NettyMetrics metrics = new NettyMetrics();
-    return ms.register(SOURCE_NAME, "Netty metrics", metrics);
+    String sourceName = SOURCE_NAME_PREFIX + "."
+        + component.replaceAll("[^A-Za-z0-9]+", "");
+    NettyMetrics metrics = new NettyMetrics(sourceName);
+    return ms.register(sourceName, "Netty metrics", metrics);
   }
 
   @Override
   public void getMetrics(MetricsCollector collector, boolean all) {
-    MetricsRecordBuilder recordBuilder = collector.addRecord(SOURCE_NAME)
+    MetricsRecordBuilder recordBuilder = collector.addRecord(sourceName)
         .setContext("Netty metrics");
     recordBuilder
         .addGauge(MetricsInfos.USED_DIRECT_MEM, usedDirectMemory())
@@ -51,7 +59,7 @@ public final class NettyMetrics implements MetricsSource {
 
   public void unregister() {
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(SOURCE_NAME);
+    ms.unregisterSource(sourceName);
   }
 
   private enum MetricsInfos implements MetricsInfo {

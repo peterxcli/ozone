@@ -477,7 +477,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
 
     registerMXBean();
     registerMetricsSource(this);
-    this.nettyMetrics = NettyMetrics.create();
+    this.nettyMetrics = NettyMetrics.create("SCM");
   }
 
   private void initializeEventHandlers() {
@@ -711,7 +711,7 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
     }
 
     scmLayoutVersionManager = new HDDSLayoutVersionManager(
-        scmStorageConfig.getLayoutVersion());
+        scmStorageConfig.getLayoutVersion(), "scm");
     VersionedDatanodeFeatures.initialize(scmLayoutVersionManager);
 
     UpgradeFinalizationExecutor<SCMUpgradeFinalizationContext>

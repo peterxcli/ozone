@@ -130,7 +130,7 @@ public class OzoneManagerStateMachine extends BaseStateMachine {
         .setNameFormat(threadPrefix + "InstallSnapshotThread").build();
     this.installSnapshotExecutor =
         HadoopExecutors.newSingleThreadExecutor(installSnapshotThreadFactory);
-    this.nettyMetrics = NettyMetrics.create();
+    this.nettyMetrics = NettyMetrics.create("OM");
   }
 
   @VisibleForTesting
