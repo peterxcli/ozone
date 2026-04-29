@@ -100,6 +100,10 @@ public final class BlockDeletingServiceMetrics {
     return createWithSourceName(buildSourceName(component));
   }
 
+  public static String getSourceName(String component) {
+    return buildSourceName(component);
+  }
+
   private static BlockDeletingServiceMetrics createWithSourceName(
       String sourceName) {
     MetricsSystem ms = DefaultMetricsSystem.instance();
