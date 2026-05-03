@@ -640,6 +640,9 @@ public final class OmUtils {
    * create a new instance to include this key, else we update the existing
    * repeatedOmKeyInfo instance.
    * 3. Set the updateID to the transactionLogIndex.
+   * 4. Set seqNumMax to the transactionLogIndex when seqNumMin is present,
+   *    making the interval exclusive at the transaction that deleted or
+   *    overwrote this version.
    * @param keyInfo args supplied by client
    * @param bucketId bucket id
    * @param trxnLogIndex For Multipart keys, this is the transactionLogIndex
@@ -667,6 +670,9 @@ public final class OmUtils {
 
     // Set the updateID
     builder.setUpdateID(trxnLogIndex);
+    if (keyInfo.hasSeqNumMin()) {
+      builder.setSeqNumMax(trxnLogIndex);
+    }
 
     //The key doesn't exist in deletedTable, so create a new instance.
     return new RepeatedOmKeyInfo(builder.build(), bucketId);

@@ -111,6 +111,8 @@ public final class OmKeyInfo extends WithParentObjectId
   // been modified.
   private Long expectedDataGeneration = null;
   private String expectedETag;
+  private Long seqNumMin;
+  private Long seqNumMax;
 
   private OmKeyInfo(Builder b) {
     super(b);
@@ -131,6 +133,8 @@ public final class OmKeyInfo extends WithParentObjectId
     this.tags = b.tags.build();
     this.expectedDataGeneration = b.expectedDataGeneration;
     this.expectedETag = b.expectedETag;
+    this.seqNumMin = b.seqNumMin;
+    this.seqNumMax = b.seqNumMax;
   }
 
   private static Codec<OmKeyInfo> newCodec(boolean ignorePipeline) {
@@ -197,6 +201,30 @@ public final class OmKeyInfo extends WithParentObjectId
 
   public String getExpectedETag() {
     return expectedETag;
+  }
+
+  public void setSeqNumMin(Long seqNumMin) {
+    this.seqNumMin = seqNumMin;
+  }
+
+  public Long getSeqNumMin() {
+    return seqNumMin;
+  }
+
+  public boolean hasSeqNumMin() {
+    return seqNumMin != null;
+  }
+
+  public void setSeqNumMax(Long seqNumMax) {
+    this.seqNumMax = seqNumMax;
+  }
+
+  public Long getSeqNumMax() {
+    return seqNumMax;
+  }
+
+  public boolean hasSeqNumMax() {
+    return seqNumMax != null;
   }
 
   public String getOwnerName() {
@@ -475,6 +503,8 @@ public final class OmKeyInfo extends WithParentObjectId
         ", fileChecksum=" + fileChecksum +
         ", isFile=" + isFile +
         ", fileName='" + fileName + '\'' +
+        ", seqNumMin=" + seqNumMin +
+        ", seqNumMax=" + seqNumMax +
         ", acls=" + acls +
         '}';
   }
@@ -503,6 +533,8 @@ public final class OmKeyInfo extends WithParentObjectId
     private final MapBuilder<String, String> tags;
     private Long expectedDataGeneration = null;
     private String expectedETag;
+    private Long seqNumMin;
+    private Long seqNumMax;
 
     public Builder() {
       this.acls = AclListBuilder.empty();
@@ -526,6 +558,8 @@ public final class OmKeyInfo extends WithParentObjectId
       this.isFile = obj.isFile;
       this.expectedDataGeneration = obj.expectedDataGeneration;
       this.expectedETag = obj.expectedETag;
+      this.seqNumMin = obj.seqNumMin;
+      this.seqNumMax = obj.seqNumMax;
       this.tags = MapBuilder.of(obj.tags);
       obj.keyLocationVersions.forEach(keyLocationVersion ->
           this.omKeyLocationInfoGroups.add(
@@ -702,6 +736,16 @@ public final class OmKeyInfo extends WithParentObjectId
       return this;
     }
 
+    public Builder setSeqNumMin(Long seqNum) {
+      this.seqNumMin = seqNum;
+      return this;
+    }
+
+    public Builder setSeqNumMax(Long seqNum) {
+      this.seqNumMax = seqNum;
+      return this;
+    }
+
     @Override
     protected void validate() {
       super.validate();
@@ -824,6 +868,12 @@ public final class OmKeyInfo extends WithParentObjectId
     if (expectedETag != null) {
       kb.setExpectedETag(expectedETag);
     }
+    if (seqNumMin != null) {
+      kb.setSeqNumMin(seqNumMin);
+    }
+    if (seqNumMax != null) {
+      kb.setSeqNumMax(seqNumMax);
+    }
     if (ownerName != null) {
       kb.setOwnerName(ownerName);
     }
@@ -880,6 +930,12 @@ public final class OmKeyInfo extends WithParentObjectId
     if (keyInfo.hasExpectedETag()) {
       builder.setExpectedETag(keyInfo.getExpectedETag());
     }
+    if (keyInfo.hasSeqNumMin()) {
+      builder.setSeqNumMin(keyInfo.getSeqNumMin());
+    }
+    if (keyInfo.hasSeqNumMax()) {
+      builder.setSeqNumMax(keyInfo.getSeqNumMax());
+    }
 
     if (keyInfo.hasOwnerName()) {
       builder.setOwnerName(keyInfo.getOwnerName());
@@ -903,6 +959,8 @@ public final class OmKeyInfo extends WithParentObjectId
         ", creationTime='" + creationTime + '\'' +
         ", objectID='" + getObjectID() + '\'' +
         ", parentID='" + getParentObjectID() + '\'' +
+        ", seqNumMin='" + seqNumMin + '\'' +
+        ", seqNumMax='" + seqNumMax + '\'' +
         ", replication='" + replicationConfig + '\'' +
         ", fileChecksum='" + fileChecksum +
         '}';
@@ -921,6 +979,8 @@ public final class OmKeyInfo extends WithParentObjectId
         Objects.equals(getMetadata(), omKeyInfo.getMetadata()) &&
         Objects.equals(acls, omKeyInfo.acls) &&
         Objects.equals(getTags(), omKeyInfo.getTags()) &&
+        Objects.equals(seqNumMin, omKeyInfo.seqNumMin) &&
+        Objects.equals(seqNumMax, omKeyInfo.seqNumMax) &&
         getObjectID() == omKeyInfo.getObjectID();
 
     if (isEqual && checkUpdateID) {

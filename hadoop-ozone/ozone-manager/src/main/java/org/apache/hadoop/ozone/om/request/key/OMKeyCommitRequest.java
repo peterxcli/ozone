@@ -313,6 +313,7 @@ public class OMKeyCommitRequest extends OMKeyRequest {
           .addAllMetadata(KeyValueUtil.getFromProtobuf(
                 commitKeyArgs.getMetadataList()))
           .setUpdateID(trxnLogIndex)
+          .setSeqNumMin(trxnLogIndex)
           .setDataSize(commitKeyArgs.getDataSize())
           .build();
 
