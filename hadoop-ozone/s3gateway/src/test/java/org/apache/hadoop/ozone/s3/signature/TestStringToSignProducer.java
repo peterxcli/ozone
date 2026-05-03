@@ -74,7 +74,7 @@ public class TestStringToSignProducer {
         + "Content-SHA";
 
     String authHeader =
-        "AWS4-HMAC-SHA256 Credential=AKIAJWFJK62WUTKNFJJA/20181009/us-east-1"
+        "AWS4-HMAC-SHA256 Credential=OZONEEXAMPLEACCESSKEY/20181009/us-east-1"
             + "/s3/aws4_request, "
             + "SignedHeaders=host;x-amz-content-sha256;x-amz-date;"
             + "content-type, "
@@ -268,5 +268,35 @@ public class TestStringToSignProducer {
     }
 
     assertEquals(expectedResult, actualResult);
+  }
+
+  @Test
+  public void testPresignedUrlWithUnsignedAmzAclHeader() throws Exception {
+    Map<String, String> queryParams = new HashMap<>();
+    queryParams.put("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
+    queryParams.put("X-Amz-Credential",
+        "OZONEEXAMPLEACCESSKEY/20130524/us-east-1/s3/aws4_request");
+    queryParams.put("X-Amz-Date", DATETIME);
+    queryParams.put("X-Amz-Expires", "600");
+    queryParams.put("X-Amz-SignedHeaders", "host");
+    queryParams.put("X-Amz-Signature",
+        "aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404");
+
+    SignatureInfo signatureInfo =
+        new AuthorizationV4QueryParser(queryParams) {
+          @Override
+          protected void validateDateAndExpires() {
+            // noop
+          }
+        }.parseSignature();
+    signatureInfo.setUnfilteredURI("/bucket/key");
+
+    LowerCaseKeyStringMap headers = new LowerCaseKeyStringMap();
+    headers.put("host", "localhost");
+    headers.put("content-type", "application/octet-stream");
+    headers.put("x-amz-acl", "public-read");
+
+    StringToSignProducer.createSignatureBase(signatureInfo, "http", "PUT",
+        headers, queryParams);
   }
 }
