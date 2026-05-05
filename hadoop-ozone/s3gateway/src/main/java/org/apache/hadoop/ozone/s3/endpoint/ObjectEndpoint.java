@@ -46,6 +46,7 @@ import static org.apache.hadoop.ozone.s3.util.S3Utils.validateSignatureHeader;
 import static org.apache.hadoop.ozone.s3.util.S3Utils.wrapInQuotes;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.FileBackedOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -198,12 +199,18 @@ public class ObjectEndpoint extends ObjectOperationHandler {
     final long startNanos = context.getStartNanos();
 
     String copyHeader = null;
+    FileBackedOutputStream spooledBody = null;
     MultiDigestInputStream multiDigestInputStream = null;
     try {
       OzoneVolume volume = context.getVolume();
       OzoneBucket bucket = context.getBucket();
       final String lengthHeader = getHeaders().getHeaderString(HttpHeaders.CONTENT_LENGTH);
       long length = lengthHeader != null ? Long.parseLong(lengthHeader) : 0;
+      if (lengthHeader == null && body != null) {
+        spooledBody = new FileBackedOutputStream(getIOBufferSize(1));
+        length = IOUtils.copyLarge(body, spooledBody);
+        body = spooledBody.asByteSource().openStream();
+      }
 
       if (uploadID != null && !uploadID.equals("")) {
         if (getHeaders().getHeaderString(COPY_SOURCE_HEADER) == null) {
@@ -342,6 +349,9 @@ public class ObjectEndpoint extends ObjectOperationHandler {
       // and MessageDigest#digest is never called
       if (multiDigestInputStream != null) {
         multiDigestInputStream.resetDigests();
+      }
+      if (spooledBody != null) {
+        spooledBody.reset();
       }
     }
   }

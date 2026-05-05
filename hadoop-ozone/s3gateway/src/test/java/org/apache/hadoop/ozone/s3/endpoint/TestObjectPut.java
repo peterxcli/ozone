@@ -54,6 +54,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -63,10 +64,12 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.ws.rs.HttpMethod;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MultivaluedHashMap;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
+import javax.xml.bind.DatatypeConverter;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -244,6 +247,21 @@ class TestObjectPut {
     assertNotNull(keyDetails.getMetadata());
     assertThat(keyDetails.getMetadata().get(OzoneConsts.ETAG)).isNotEmpty();
     assertEquals(15, keyDetails.getDataSize());
+  }
+
+  @Test
+  void testPutObjectWithChunkedTransferEncoding() throws Exception {
+    when(objectEndpoint.getContext().getMethod()).thenReturn(HttpMethod.PUT);
+    when(headers.getHeaderString(HttpHeaders.CONTENT_LENGTH)).thenReturn(null);
+    when(headers.getHeaderString("Transfer-Encoding")).thenReturn("chunked");
+    when(headers.getHeaderString(X_AMZ_CONTENT_SHA256)).thenReturn(sha256Hex(CONTENT));
+
+    try (InputStream body = new ByteArrayInputStream(CONTENT.getBytes(StandardCharsets.UTF_8))) {
+      assertSucceeds(() -> objectEndpoint.put(BUCKET_NAME, KEY_NAME, body));
+    }
+
+    OzoneKeyDetails keyDetails = assertKeyContent(bucket, KEY_NAME, CONTENT);
+    assertEquals(CONTENT.length(), keyDetails.getDataSize());
   }
 
   @Test
@@ -671,5 +689,11 @@ class TestObjectPut {
   /** Put object at {@link #BUCKET_NAME}/{@link #KEY_NAME} with the specified content. */
   private Response putObject(String content) throws IOException, OS3Exception {
     return put(objectEndpoint, BUCKET_NAME, KEY_NAME, content);
+  }
+
+  private static String sha256Hex(String content) throws NoSuchAlgorithmException {
+    MessageDigest digest = MessageDigest.getInstance(OzoneConsts.FILE_HASH);
+    byte[] contentDigest = digest.digest(content.getBytes(StandardCharsets.UTF_8));
+    return DatatypeConverter.printHexBinary(contentDigest).toLowerCase();
   }
 }
