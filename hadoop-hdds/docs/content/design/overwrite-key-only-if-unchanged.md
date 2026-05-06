@@ -91,7 +91,7 @@ The advantage of this alternative approach is that it does not require the expec
 
 However the client code required to implement this appears more complex due to having different key commit logic for Ratis and EC and the parameter needing to be passed through many method calls.
 
-PR [#5524](https://github.com/apache/ozone/pull/5524) illustrates this approach for the atomicKeyCreation feature which was added to S3.
+PR [#5524](https://github.com/apache/ozone/pull/5524) previously illustrated this approach for S3 object creation.
 
 The existing implementation for key creation stores various attributes (metadata, creation time, ACLs, ReplicationConfig) in the openKey table, so storing the expectedGeneration keeps with that convention, which is less confusing for future developers.
 

@@ -20,6 +20,7 @@ package org.apache.hadoop.ozone.client;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.hadoop.hdds.client.ReplicationFactor.ONE;
 import static org.apache.ozone.test.GenericTestUtils.getTestStartTime;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -221,10 +222,8 @@ public class TestOzoneClient {
   }
 
   /**
-   * This test validates that for S3G,
-   * the key upload process needs to be atomic.
-   * It simulates two mismatch scenarios where the actual write data size does
-   * not match the expected size.
+   * This test validates that S3G object atomicity does not depend on the
+   * legacy client-side close check matching the expected and written sizes.
    */
   @Test
   public void testPutKeySizeMismatch() throws IOException {
@@ -238,8 +237,7 @@ public class TestOzoneClient {
           value.getBytes(UTF_8).length, ReplicationType.RATIS, ONE,
           new HashMap<>());
       out1.write(value.substring(0, value.length() - 1).getBytes(UTF_8));
-      assertThrows(IllegalStateException.class, out1::close,
-          "Expected IllegalArgumentException due to size mismatch.");
+      assertDoesNotThrow(out1::close);
 
       // Simulating second mismatch: Write more data than expected
       OzoneOutputStream out2 = bucket.createKey(keyName,
@@ -247,8 +245,7 @@ public class TestOzoneClient {
           new HashMap<>());
       value += "1";
       out2.write(value.getBytes(UTF_8));
-      assertThrows(IllegalStateException.class, out2::close,
-          "Expected IllegalArgumentException due to size mismatch.");
+      assertDoesNotThrow(out2::close);
     } finally {
       client.getProxy().setIsS3Request(false);
     }
