@@ -512,6 +512,21 @@ class TestObjectPut {
   }
 
   @Test
+  void testDirectoryCreationWithChunkedTransferEncoding() throws Exception {
+    final String path = "dir/";
+    when(objectEndpoint.getContext().getMethod()).thenReturn(HttpMethod.PUT);
+    when(headers.getHeaderString(HttpHeaders.CONTENT_LENGTH)).thenReturn(null);
+    when(headers.getHeaderString("Transfer-Encoding")).thenReturn("chunked");
+
+    try (InputStream body = new ByteArrayInputStream(new byte[0])) {
+      assertSucceeds(() -> objectEndpoint.put(FSO_BUCKET_NAME, path, body));
+    }
+
+    OzoneKeyDetails key = fsoBucket.getKey(path);
+    assertThat(key.isFile()).as("directory").isFalse();
+  }
+
+  @Test
   void testDirectoryCreationOverFile() throws Exception {
     // GIVEN
     final String path = "key";
