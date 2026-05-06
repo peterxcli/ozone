@@ -41,6 +41,7 @@ import static org.apache.hadoop.ozone.s3.util.S3Consts.RANGE_HEADER_SUPPORTED_UN
 import static org.apache.hadoop.ozone.s3.util.S3Consts.STORAGE_CLASS_HEADER;
 import static org.apache.hadoop.ozone.s3.util.S3Consts.TAG_COUNT_HEADER;
 import static org.apache.hadoop.ozone.s3.util.S3Consts.TAG_DIRECTIVE_HEADER;
+import static org.apache.hadoop.ozone.s3.util.S3Utils.hasMultiChunksPayload;
 import static org.apache.hadoop.ozone.s3.util.S3Utils.stripQuotes;
 import static org.apache.hadoop.ozone.s3.util.S3Utils.validateSignatureHeader;
 import static org.apache.hadoop.ozone.s3.util.S3Utils.wrapInQuotes;
@@ -205,11 +206,16 @@ public class ObjectEndpoint extends ObjectOperationHandler {
       OzoneVolume volume = context.getVolume();
       OzoneBucket bucket = context.getBucket();
       final String lengthHeader = getHeaders().getHeaderString(HttpHeaders.CONTENT_LENGTH);
+      final String rawAmzContentSha256Header = getHeaders().getHeaderString(S3Consts.X_AMZ_CONTENT_SHA256);
+      final boolean hasMultiChunksUpload =
+          rawAmzContentSha256Header != null && hasMultiChunksPayload(rawAmzContentSha256Header);
+      boolean hasCalculatedLength = false;
       long length = lengthHeader != null ? Long.parseLong(lengthHeader) : 0;
-      if (lengthHeader == null && body != null) {
+      if (lengthHeader == null && body != null && !hasMultiChunksUpload) {
         spooledBody = new FileBackedOutputStream(32);
         length = IOUtils.copyLarge(body, spooledBody, new byte[getIOBufferSize(0)]);
         body = spooledBody.asByteSource().openStream();
+        hasCalculatedLength = true;
       }
 
       if (uploadID != null && !uploadID.equals("")) {
@@ -252,8 +258,10 @@ public class ObjectEndpoint extends ObjectOperationHandler {
           getHeaders().getHeaderString(S3Consts.DECODED_CONTENT_LENGTH_HEADER);
       boolean hasAmzDecodedLengthZero = amzDecodedLength != null &&
           Long.parseLong(amzDecodedLength) == 0;
+      boolean hasKnownZeroLength = hasAmzDecodedLengthZero ||
+          (length == 0 && (lengthHeader != null || hasCalculatedLength || body == null));
       if (canCreateDirectory &&
-          (length == 0 || hasAmzDecodedLengthZero) &&
+          hasKnownZeroLength &&
           StringUtils.endsWith(keyPath, "/")
       ) {
         context.setAction(S3GAction.CREATE_DIRECTORY);

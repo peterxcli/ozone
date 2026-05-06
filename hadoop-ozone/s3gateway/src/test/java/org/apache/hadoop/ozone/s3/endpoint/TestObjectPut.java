@@ -44,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.mock;
@@ -246,6 +247,33 @@ class TestObjectPut {
     OzoneKeyDetails keyDetails = assertKeyContent(bucket, KEY_NAME, "1234567890abcde");
     assertNotNull(keyDetails.getMetadata());
     assertThat(keyDetails.getMetadata().get(OzoneConsts.ETAG)).isNotEmpty();
+    assertEquals(15, keyDetails.getDataSize());
+  }
+
+  @Test
+  void testPutObjectWithSignedChunksWithoutContentLengthDoesNotCalculateTransferLength() throws Exception {
+    String chunkedContent = "0a;chunk-signature=signature\r\n"
+        + "1234567890\r\n"
+        + "05;chunk-signature=signature\r\n"
+        + "abcde\r\n";
+    String keyName = "streaming-object/";
+    when(objectEndpoint.getContext().getMethod()).thenReturn(HttpMethod.PUT);
+    when(headers.getHeaderString(HttpHeaders.CONTENT_LENGTH)).thenReturn(null);
+    when(headers.getHeaderString(X_AMZ_CONTENT_SHA256))
+        .thenReturn(STREAMING_AWS4_HMAC_SHA256_PAYLOAD);
+    when(headers.getHeaderString(DECODED_CONTENT_LENGTH_HEADER))
+        .thenReturn("15");
+
+    try (MockedStatic<IOUtils> mocked = mockStatic(IOUtils.class, CALLS_REAL_METHODS);
+         InputStream body = new ByteArrayInputStream(chunkedContent.getBytes(StandardCharsets.UTF_8))) {
+      mocked.when(() -> IOUtils.copyLarge(any(InputStream.class), any(OutputStream.class), any(byte[].class)))
+          .thenThrow(new AssertionError("streaming payload should not be buffered for length calculation"));
+
+      assertSucceeds(() -> objectEndpoint.put(FSO_BUCKET_NAME, keyName, body));
+    }
+
+    OzoneKeyDetails keyDetails = assertKeyContent(fsoBucket, keyName, "1234567890abcde");
+    assertThat(keyDetails.isFile()).as("object").isTrue();
     assertEquals(15, keyDetails.getDataSize());
   }
 
