@@ -1391,7 +1391,7 @@ public abstract class OMKeyRequest extends OMClientRequest {
       AtomicRewritePhase phase) throws OMException {
     addRewriteGenerationToAuditMap(expectedGen, auditMap);
 
-    if (expectedGen == OzoneConsts.EXPECTED_GEN_CREATE_IF_NOT_EXISTS) {
+    if (expectedGen == OzoneConsts.EXPECTED_GEN_CREATE_IF_ABSENT) {
       if (existing != null) {
         throw phase.keyAlreadyExists();
       }
