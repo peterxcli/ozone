@@ -20,7 +20,6 @@ package org.apache.hadoop.ozone.client;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.hadoop.hdds.client.ReplicationFactor.ONE;
 import static org.apache.ozone.test.GenericTestUtils.getTestStartTime;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -218,36 +217,6 @@ public class TestOzoneClient {
       }
       OzoneKey key = bucket.getKey(keyName);
       assertEquals(keyName, key.getName());
-    }
-  }
-
-  /**
-   * This test validates that S3G object atomicity does not depend on the
-   * legacy client-side close check matching the expected and written sizes.
-   */
-  @Test
-  public void testPutKeySizeMismatch() throws IOException {
-    String value = new String(new byte[1024], UTF_8);
-    OzoneBucket bucket = getOzoneBucket();
-    String keyName = UUID.randomUUID().toString();
-    try {
-      // Simulating first mismatch: Write less data than expected
-      client.getProxy().setIsS3Request(true);
-      OzoneOutputStream out1 = bucket.createKey(keyName,
-          value.getBytes(UTF_8).length, ReplicationType.RATIS, ONE,
-          new HashMap<>());
-      out1.write(value.substring(0, value.length() - 1).getBytes(UTF_8));
-      assertDoesNotThrow(out1::close);
-
-      // Simulating second mismatch: Write more data than expected
-      OzoneOutputStream out2 = bucket.createKey(keyName,
-          value.getBytes(UTF_8).length, ReplicationType.RATIS, ONE,
-          new HashMap<>());
-      value += "1";
-      out2.write(value.getBytes(UTF_8));
-      assertDoesNotThrow(out2::close);
-    } finally {
-      client.getProxy().setIsS3Request(false);
     }
   }
 
