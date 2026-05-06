@@ -207,8 +207,8 @@ public class ObjectEndpoint extends ObjectOperationHandler {
       final String lengthHeader = getHeaders().getHeaderString(HttpHeaders.CONTENT_LENGTH);
       long length = lengthHeader != null ? Long.parseLong(lengthHeader) : 0;
       if (lengthHeader == null && body != null) {
-        spooledBody = new FileBackedOutputStream(getIOBufferSize(1));
-        length = IOUtils.copyLarge(body, spooledBody);
+        spooledBody = new FileBackedOutputStream(32);
+        length = IOUtils.copyLarge(body, spooledBody, new byte[getIOBufferSize(0)]);
         body = spooledBody.asByteSource().openStream();
       }
 
