@@ -124,12 +124,27 @@ public final class EndpointTestUtils {
       String uploadID,
       String content
   ) throws IOException, OS3Exception {
+    return put(subject, bucket, key, partNumber, uploadID,
+        contentLength(content), content);
+  }
+
+  /** Put with content, part number, upload ID, and explicit Content-Length. */
+  public static Response put(
+      ObjectEndpoint subject,
+      String bucket,
+      String key,
+      int partNumber,
+      String uploadID,
+      long contentLength,
+      String content
+  ) throws IOException, OS3Exception {
     if (uploadID != null) {
       subject.queryParamsForTest().set(S3Consts.QueryParams.UPLOAD_ID, uploadID);
     }
     subject.queryParamsForTest().setInt(S3Consts.QueryParams.PART_NUMBER, partNumber);
     when(subject.getContext().getMethod()).thenReturn(HttpMethod.PUT);
-    setLengthHeader(subject, content);
+    when(subject.getHeaders().getHeaderString(HttpHeaders.CONTENT_LENGTH))
+        .thenReturn(String.valueOf(contentLength));
 
     if (content == null) {
       return subject.put(bucket, key, null);
@@ -264,9 +279,12 @@ public final class EndpointTestUtils {
   }
 
   private static void setLengthHeader(ObjectEndpoint subject, String content) {
-    final long length = content != null ? content.length() : 0;
     when(subject.getHeaders().getHeaderString(HttpHeaders.CONTENT_LENGTH))
-        .thenReturn(String.valueOf(length));
+        .thenReturn(String.valueOf(contentLength(content)));
+  }
+
+  private static long contentLength(String content) {
+    return content != null ? content.getBytes(UTF_8).length : 0;
   }
 
   private EndpointTestUtils() {

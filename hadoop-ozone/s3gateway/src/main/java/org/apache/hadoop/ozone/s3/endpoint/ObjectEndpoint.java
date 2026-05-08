@@ -55,7 +55,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -298,6 +297,8 @@ public class ObjectEndpoint extends ObjectOperationHandler {
           output.getMetadata().put(OzoneConsts.ETAG, md5Hash);
 
           List<CheckedRunnable<IOException>> preCommits = new ArrayList<>();
+          preCommits.add(validateContentLength(
+              length, putLength, keyPath));
 
           String clientContentMD5 = getHeaders().getHeaderString(S3Consts.CHECKSUM_HEADER);
           if (clientContentMD5 != null) {
@@ -912,13 +913,16 @@ public class ObjectEndpoint extends ObjectOperationHandler {
               new byte[getIOBufferSize(length)]);
           byte[] digest = multiDigestInputStream.getMessageDigest(OzoneConsts.MD5_HASH).digest();
           String md5Hash = DatatypeConverter.printHexBinary(digest).toLowerCase();
+          List<CheckedRunnable<IOException>> preCommits = new ArrayList<>();
+          preCommits.add(validateContentLength(length, putLength, key));
           String clientContentMD5 = getHeaders().getHeaderString(S3Consts.CHECKSUM_HEADER);
           if (clientContentMD5 != null) {
             CheckedRunnable<IOException> checkContentMD5Hook = () -> {
               S3Utils.validateContentMD5(clientContentMD5, md5Hash, key);
             };
-            ozoneOutputStream.getKeyOutputStream().setPreCommits(Collections.singletonList(checkContentMD5Hook));
+            preCommits.add(checkContentMD5Hook);
           }
+          ozoneOutputStream.getKeyOutputStream().setPreCommits(preCommits);
           ozoneOutputStream.getMetadata().put(OzoneConsts.ETAG, md5Hash);
           outputStream = ozoneOutputStream;
         }

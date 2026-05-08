@@ -133,6 +133,21 @@ public class TestPartUpload {
   }
 
   @Test
+  public void testPartUploadRejectsIncompleteBody() throws Exception {
+    String uploadID = initiateMultipartUpload(rest, OzoneConsts.S3_BUCKET,
+        OzoneConsts.KEY);
+    String content = "Multipart Upload";
+
+    assertErrorResponse(S3ErrorTable.INVALID_REQUEST,
+        () -> put(rest, OzoneConsts.S3_BUCKET, OzoneConsts.KEY,
+            1, uploadID, content.length() + 1, content));
+    OzoneMultipartUploadPartListParts parts =
+        client.getObjectStore().getS3Bucket(OzoneConsts.S3_BUCKET)
+            .listParts(OzoneConsts.KEY, uploadID, 0, 100);
+    assertEquals(0, parts.getPartInfoList().size());
+  }
+
+  @Test
   public void testPartUploadStreamContentLength()
       throws IOException, OS3Exception {
     String keyName = UUID.randomUUID().toString();

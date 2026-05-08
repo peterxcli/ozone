@@ -510,6 +510,14 @@ class TestObjectPut {
   }
 
   @Test
+  public void testPutObjectRejectsIncompleteBody() {
+    assertErrorResponse(INVALID_REQUEST,
+        () -> put(objectEndpoint, BUCKET_NAME, KEY_NAME, 0,
+            null, CONTENT.length() + 1, CONTENT));
+    assertThrows(IOException.class, () -> bucket.getKey(KEY_NAME));
+  }
+
+  @Test
   public void testPutObjectWithContentMD5() throws Exception {
     // GIVEN
     byte[] contentBytes = CONTENT.getBytes(StandardCharsets.UTF_8);
