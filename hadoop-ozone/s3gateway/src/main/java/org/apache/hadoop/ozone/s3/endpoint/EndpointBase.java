@@ -695,8 +695,8 @@ public abstract class EndpointBase {
       LOG.warn("buffer size is set to {}", IOUtils.DEFAULT_BUFFER_SIZE);
       bufferSize = IOUtils.DEFAULT_BUFFER_SIZE;
     }
-    if (fileLength == 0) {
-      // for empty file
+    if (fileLength <= 0) {
+      // for empty file or unknown length
       return bufferSize;
     } else {
       return fileLength < bufferSize ? (int) fileLength : bufferSize;

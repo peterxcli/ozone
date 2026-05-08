@@ -1473,11 +1473,9 @@ public class RpcClient implements ClientProtocol {
   private OzoneOutputStream openOutputStream(OmKeyArgs keyArgs, long size)
       throws IOException {
     OpenKeySession openKey = ozoneManagerClient.openKey(keyArgs);
-    // For bucket with layout OBJECT_STORE, when create an empty file (size=0),
-    // OM will set DataSize to OzoneConfigKeys#OZONE_SCM_BLOCK_SIZE,
-    // which will cause S3G's atomic write length check to fail,
-    // so reset size to 0 here.
-    if (isS3GRequest.get() && size == 0) {
+    // Keep non-positive S3 writes from carrying OM's preallocated block size
+    // or an internal unknown-length marker into later allocate-block requests.
+    if (isS3GRequest.get() && size <= 0) {
       openKey.getKeyInfo().setDataSize(0);
     }
     return createOutputStream(openKey);
@@ -2117,7 +2115,8 @@ public class RpcClient implements ClientProtocol {
       keyOutputStream.addPreallocateBlocks(
           openKey.getKeyInfo().getLatestVersionLocations(),
           openKey.getOpenVersion());
-      final OzoneOutputStream secureOut = createSecureOutputStream(openKey, keyOutputStream, null);
+      final OzoneOutputStream secureOut = createSecureOutputStream(openKey,
+          keyOutputStream, null);
       out = secureOut != null ? secureOut : keyOutputStream;
     } else {
       out = createMultipartOutputStream(openKey, uploadID, partNumber);
@@ -2579,7 +2578,8 @@ public class RpcClient implements ClientProtocol {
       keyOutputStream.addPreallocateBlocks(
           openKey.getKeyInfo().getLatestVersionLocations(),
           openKey.getOpenVersion());
-      final OzoneOutputStream secureOut = createSecureOutputStream(openKey, keyOutputStream, null);
+      final OzoneOutputStream secureOut = createSecureOutputStream(openKey,
+          keyOutputStream, null);
       out = secureOut != null ? secureOut : keyOutputStream;
     } else {
       out = createOutputStream(openKey);
@@ -2588,21 +2588,17 @@ public class RpcClient implements ClientProtocol {
   }
 
   private KeyDataStreamOutput.Builder newKeyOutputStreamBuilder() {
-    // Amazon S3 never adds partial objects, So for S3 requests we need to
-    // set atomicKeyCreation to true
     // refer: https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
     return new KeyDataStreamOutput.Builder()
         .setXceiverClientManager(xceiverClientManager)
         .setOmClient(ozoneManagerClient)
         .enableUnsafeByteBufferConversion(unsafeByteBufferConversion)
-        .setConfig(clientConfig)
-        .setAtomicKeyCreation(isS3GRequest.get());
+        .setConfig(clientConfig);
   }
 
   private OzoneOutputStream createOutputStream(OpenKeySession openKey)
       throws IOException {
-    KeyOutputStream keyOutputStream = createKeyOutputStream(openKey)
-        .build();
+    KeyOutputStream keyOutputStream = createKeyOutputStream(openKey).build();
     return createOutputStream(openKey, keyOutputStream);
   }
 
@@ -2670,7 +2666,6 @@ public class RpcClient implements ClientProtocol {
         .setOmClient(ozoneManagerClient)
         .enableUnsafeByteBufferConversion(unsafeByteBufferConversion)
         .setConfig(clientConfig)
-        .setAtomicKeyCreation(isS3GRequest.get())
         .setClientMetrics(clientMetrics)
         .setExecutorServiceSupplier(writeExecutor)
         .setStreamBufferArgs(streamBufferArgs)

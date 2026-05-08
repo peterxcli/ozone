@@ -145,12 +145,13 @@ public final class OzoneBucketStub extends OzoneBucket {
         new KeyMetadataAwareOutputStream(metadata) {
           @Override
           public void close() throws IOException {
-            keyContents.put(key, toByteArray());
+            byte[] content = toByteArray();
+            keyContents.put(key, content);
             keyDetails.put(key, new OzoneKeyDetails(
                 getVolumeName(),
                 getName(),
                 key,
-                size,
+                size >= 0 ? size : content.length,
                 System.currentTimeMillis(),
                 System.currentTimeMillis(),
                 new ArrayList<>(), finalReplicationCon, getMetadata(), null,
@@ -240,15 +241,15 @@ public final class OzoneBucketStub extends OzoneBucket {
     ByteBufferStreamOutput byteBufferStreamOutput =
         new KeyMetadataAwareByteBufferStreamOutput(keyMetadata) {
 
-          private final ByteBuffer buffer = ByteBuffer.allocate((int) size);
+          private final ByteArrayOutputStream buffer =
+              new ByteArrayOutputStream(
+                  size > 0 && size <= Integer.MAX_VALUE ? (int) size : 32);
 
           @Override
           public void close() throws IOException {
             super.close();
 
-            buffer.flip();
-            byte[] bytes1 = new byte[buffer.remaining()];
-            buffer.get(bytes1);
+            byte[] bytes1 = buffer.toByteArray();
             keyContents.put(key, bytes1);
 
             Map<String, String> objectMetadata = keyMetadata == null ?
@@ -258,7 +259,7 @@ public final class OzoneBucketStub extends OzoneBucket {
                 getVolumeName(),
                 getName(),
                 key,
-                size,
+                size >= 0 ? size : bytes1.length,
                 System.currentTimeMillis(),
                 System.currentTimeMillis(),
                 new ArrayList<>(), rConfig, objectMetadata, null,
@@ -272,8 +273,11 @@ public final class OzoneBucketStub extends OzoneBucket {
           public void write(ByteBuffer b, int off, int len)
               throws IOException {
             byte[] bytes = new byte[len];
-            b.get(bytes, off, len);
-            buffer.put(bytes);
+            ByteBuffer duplicate = b.duplicate();
+            duplicate.position(off);
+            duplicate.limit(off + len);
+            duplicate.get(bytes);
+            buffer.write(bytes);
           }
 
           @Override

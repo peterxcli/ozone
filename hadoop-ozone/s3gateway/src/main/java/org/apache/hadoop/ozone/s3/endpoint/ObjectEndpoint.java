@@ -47,10 +47,10 @@ import static org.apache.hadoop.ozone.s3.util.S3Utils.validateSignatureHeader;
 import static org.apache.hadoop.ozone.s3.util.S3Utils.wrapInQuotes;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.io.FileBackedOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PushbackInputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -123,6 +123,7 @@ public class ObjectEndpoint extends ObjectOperationHandler {
 
   private static final String BUCKET = "bucket";
   private static final String PATH = "path";
+  private static final long UNKNOWN_KEY_SIZE = -1L;
 
   private static final Logger LOG =
       LoggerFactory.getLogger(ObjectEndpoint.class);
@@ -200,23 +201,13 @@ public class ObjectEndpoint extends ObjectOperationHandler {
     final long startNanos = context.getStartNanos();
 
     String copyHeader = null;
-    FileBackedOutputStream spooledBody = null;
     MultiDigestInputStream multiDigestInputStream = null;
     try {
       OzoneVolume volume = context.getVolume();
       OzoneBucket bucket = context.getBucket();
       final String lengthHeader = getHeaders().getHeaderString(HttpHeaders.CONTENT_LENGTH);
-      final String rawAmzContentSha256Header = getHeaders().getHeaderString(S3Consts.X_AMZ_CONTENT_SHA256);
-      final boolean hasMultiChunksUpload =
-          rawAmzContentSha256Header != null && hasMultiChunksPayload(rawAmzContentSha256Header);
-      boolean hasCalculatedLength = false;
+      final boolean hasContentLength = lengthHeader != null;
       long length = lengthHeader != null ? Long.parseLong(lengthHeader) : 0;
-      if (lengthHeader == null && body != null && !hasMultiChunksUpload) {
-        spooledBody = new FileBackedOutputStream(32);
-        length = IOUtils.copyLarge(body, spooledBody, new byte[getIOBufferSize(0)]);
-        body = spooledBody.asByteSource().openStream();
-        hasCalculatedLength = true;
-      }
 
       if (uploadID != null && !uploadID.equals("")) {
         if (getHeaders().getHeaderString(COPY_SOURCE_HEADER) == null) {
@@ -258,19 +249,30 @@ public class ObjectEndpoint extends ObjectOperationHandler {
           getHeaders().getHeaderString(S3Consts.DECODED_CONTENT_LENGTH_HEADER);
       boolean hasAmzDecodedLengthZero = amzDecodedLength != null &&
           Long.parseLong(amzDecodedLength) == 0;
-      boolean hasKnownZeroLength = hasAmzDecodedLengthZero ||
-          (length == 0 && (lengthHeader != null || hasCalculatedLength || body == null));
+      String rawAmzContentSha256Header =
+          getHeaders().getHeaderString(S3Consts.X_AMZ_CONTENT_SHA256);
+      boolean hasMultiChunksUpload =
+          rawAmzContentSha256Header != null &&
+              hasMultiChunksPayload(rawAmzContentSha256Header);
+      boolean hasUnknownLength =
+          !hasContentLength && body != null && !hasMultiChunksUpload;
+
+      DirectoryProbe directoryProbe = probeUnknownLengthDirectory(
+          canCreateDirectory, hasUnknownLength, keyPath, body);
+      if (directoryProbe.isEmptyDirectory()) {
+        return createDirectory(context, volume.getName(), bucketName, keyPath);
+      }
+      body = directoryProbe.getBody();
+
       if (canCreateDirectory &&
-          hasKnownZeroLength &&
+          (hasAmzDecodedLengthZero ||
+              (length == 0 && (hasContentLength || body == null))) &&
           StringUtils.endsWith(keyPath, "/")
       ) {
-        context.setAction(S3GAction.CREATE_DIRECTORY);
-        getClientProtocol()
-            .createDirectory(volume.getName(), bucketName, keyPath);
-        long metadataLatencyNs =
-            getMetrics().updatePutKeyMetadataStats(startNanos);
-        perf.appendMetaLatencyNanos(metadataLatencyNs);
-        return Response.ok().status(HttpStatus.SC_OK).build();
+        return createDirectory(context, volume.getName(), bucketName, keyPath);
+      }
+      if (hasUnknownLength) {
+        length = UNKNOWN_KEY_SIZE;
       }
 
       S3ConditionalRequest.WriteConditions writeConditions =
@@ -288,7 +290,8 @@ public class ObjectEndpoint extends ObjectOperationHandler {
 
       long putLength;
       final String md5Hash;
-      if (isDatastreamEnabled() && !enableEC && length > getDatastreamMinLength()) {
+      if (isDatastreamEnabled() && !enableEC &&
+          (length == UNKNOWN_KEY_SIZE || length > getDatastreamMinLength())) {
         perf.appendStreamMode();
         Pair<String, Long> keyWriteResult = ObjectEndpointStreaming
             .put(bucket, keyPath, length, replicationConfig, getChunkSize(),
@@ -358,9 +361,59 @@ public class ObjectEndpoint extends ObjectOperationHandler {
       if (multiDigestInputStream != null) {
         multiDigestInputStream.resetDigests();
       }
-      if (spooledBody != null) {
-        spooledBody.reset();
-      }
+    }
+  }
+
+  private DirectoryProbe probeUnknownLengthDirectory(
+      boolean canCreateDirectory, boolean hasUnknownLength, String keyPath,
+      InputStream body) throws IOException {
+    if (!hasUnknownLength || !canCreateDirectory ||
+        !StringUtils.endsWith(keyPath, "/")) {
+      return DirectoryProbe.object(body);
+    }
+
+    PushbackInputStream pushbackInputStream = new PushbackInputStream(body, 1);
+    int firstByte = pushbackInputStream.read();
+    if (firstByte == -1) {
+      return DirectoryProbe.emptyDirectory();
+    }
+    pushbackInputStream.unread(firstByte);
+    return DirectoryProbe.object(pushbackInputStream);
+  }
+
+  private Response createDirectory(ObjectRequestContext context,
+      String volumeName, String bucketName, String keyPath) throws IOException {
+    context.setAction(S3GAction.CREATE_DIRECTORY);
+    getClientProtocol().createDirectory(volumeName, bucketName, keyPath);
+    long metadataLatencyNs =
+        getMetrics().updatePutKeyMetadataStats(context.getStartNanos());
+    context.getPerf().appendMetaLatencyNanos(metadataLatencyNs);
+    return Response.ok().status(HttpStatus.SC_OK).build();
+  }
+
+  private static final class DirectoryProbe {
+    private final InputStream body;
+    private final boolean emptyDirectory;
+
+    private DirectoryProbe(InputStream body, boolean emptyDirectory) {
+      this.body = body;
+      this.emptyDirectory = emptyDirectory;
+    }
+
+    private static DirectoryProbe object(InputStream body) {
+      return new DirectoryProbe(body, false);
+    }
+
+    private static DirectoryProbe emptyDirectory() {
+      return new DirectoryProbe(null, true);
+    }
+
+    private InputStream getBody() {
+      return body;
+    }
+
+    private boolean isEmptyDirectory() {
+      return emptyDirectory;
     }
   }
 

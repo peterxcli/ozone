@@ -208,8 +208,9 @@ final class ObjectEndpointStreaming {
       throws IOException {
     final byte[] buffer = new byte[bufferSize];
     long n = 0;
-    while (n < length) {
-      final int toRead = Math.toIntExact(Math.min(bufferSize, length - n));
+    while (length < 0 || n < length) {
+      final int toRead = length < 0 ? bufferSize :
+          Math.toIntExact(Math.min(bufferSize, length - n));
       final int readLength = body.read(buffer, 0, toRead);
       if (readLength == -1) {
         break;

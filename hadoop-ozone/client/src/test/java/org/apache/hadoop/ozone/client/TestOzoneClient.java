@@ -220,38 +220,70 @@ public class TestOzoneClient {
     }
   }
 
-  /**
-   * This test validates that for S3G,
-   * the key upload process needs to be atomic.
-   * It simulates two mismatch scenarios where the actual write data size does
-   * not match the expected size.
-   */
   @Test
-  public void testPutKeySizeMismatch() throws IOException {
+  public void testPutKeySizeMismatchCommitsActualSizeForS3Request()
+      throws IOException {
     String value = new String(new byte[1024], UTF_8);
     OzoneBucket bucket = getOzoneBucket();
-    String keyName = UUID.randomUUID().toString();
+    String shortKeyName = UUID.randomUUID().toString();
+    String shortValue = value.substring(0, value.length() - 1);
+    String longKeyName = UUID.randomUUID().toString();
+    String longValue = value + "1";
     try {
-      // Simulating first mismatch: Write less data than expected
       client.getProxy().setIsS3Request(true);
-      OzoneOutputStream out1 = bucket.createKey(keyName,
-          value.getBytes(UTF_8).length, ReplicationType.RATIS, ONE,
-          new HashMap<>());
-      out1.write(value.substring(0, value.length() - 1).getBytes(UTF_8));
-      assertThrows(IllegalStateException.class, out1::close,
-          "Expected IllegalArgumentException due to size mismatch.");
-
-      // Simulating second mismatch: Write more data than expected
-      OzoneOutputStream out2 = bucket.createKey(keyName,
-          value.getBytes(UTF_8).length, ReplicationType.RATIS, ONE,
-          new HashMap<>());
-      value += "1";
-      out2.write(value.getBytes(UTF_8));
-      assertThrows(IllegalStateException.class, out2::close,
-          "Expected IllegalArgumentException due to size mismatch.");
+      writeKey(bucket, shortKeyName, value.getBytes(UTF_8).length,
+          shortValue);
+      writeKey(bucket, longKeyName, value.getBytes(UTF_8).length,
+          longValue);
     } finally {
       client.getProxy().setIsS3Request(false);
     }
+    assertKeyContent(bucket, shortKeyName, shortValue);
+    assertKeyContent(bucket, longKeyName, longValue);
+  }
+
+  @Test
+  public void testPutKeyWithUnknownSizeForS3Request() throws IOException {
+    String value = "sample value";
+    OzoneBucket bucket = getOzoneBucket();
+    String keyName = UUID.randomUUID().toString();
+    try {
+      client.getProxy().setIsS3Request(true);
+      writeKey(bucket, keyName, -1, value);
+    } finally {
+      client.getProxy().setIsS3Request(false);
+    }
+    assertKeyContent(bucket, keyName, value);
+  }
+
+  private void writeKey(OzoneBucket bucket, String keyName, long size,
+      String value) throws IOException {
+    try (OzoneOutputStream out = bucket.createKey(keyName, size,
+        ReplicationType.RATIS, ONE, new HashMap<>())) {
+      out.write(value.getBytes(UTF_8));
+    }
+  }
+
+  private void assertKeyContent(OzoneBucket bucket, String keyName,
+      String value) throws IOException {
+    byte[] bytes = value.getBytes(UTF_8);
+    OzoneKey key = bucket.getKey(keyName);
+    assertEquals(bytes.length, key.getDataSize());
+
+    byte[] fileContent = new byte[bytes.length];
+    try (OzoneInputStream is = bucket.readKey(keyName)) {
+      int offset = 0;
+      while (offset < fileContent.length) {
+        int read = is.read(fileContent, offset, fileContent.length - offset);
+        if (read == -1) {
+          break;
+        }
+        offset += read;
+      }
+      assertEquals(fileContent.length, offset);
+      assertEquals(-1, is.read());
+    }
+    assertEquals(value, new String(fileContent, UTF_8));
   }
 
   private OzoneBucket getOzoneBucket() throws IOException {

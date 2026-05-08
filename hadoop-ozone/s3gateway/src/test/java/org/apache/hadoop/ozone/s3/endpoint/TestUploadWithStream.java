@@ -29,9 +29,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
+import javax.ws.rs.HttpMethod;
 import javax.ws.rs.core.HttpHeaders;
 import org.apache.hadoop.hdds.client.ReplicationConfig;
 import org.apache.hadoop.hdds.client.ReplicationFactor;
@@ -90,6 +93,22 @@ public class TestUploadWithStream {
   @Test
   public void testUpload() throws Exception {
     assertSucceeds(() -> put(rest, S3BUCKET, S3KEY, S3_COPY_EXISTING_KEY_CONTENT));
+  }
+
+  @Test
+  public void testUploadWithoutContentLength() throws Exception {
+    when(rest.getContext().getMethod()).thenReturn(HttpMethod.PUT);
+    when(rest.getHeaders().getHeaderString(HttpHeaders.CONTENT_LENGTH))
+        .thenReturn(null);
+
+    try (InputStream body = new ByteArrayInputStream(
+        S3_COPY_EXISTING_KEY_CONTENT.getBytes(UTF_8))) {
+      assertSucceeds(() -> rest.put(S3BUCKET, S3KEY, body));
+    }
+
+    OzoneBucket bucket = client.getObjectStore().getS3Bucket(S3BUCKET);
+    assertEquals(S3_COPY_EXISTING_KEY_CONTENT.length(),
+        bucket.getKey(S3KEY).getDataSize());
   }
 
   @Test

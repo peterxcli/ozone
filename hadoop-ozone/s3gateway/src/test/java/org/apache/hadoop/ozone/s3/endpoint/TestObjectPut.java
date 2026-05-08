@@ -555,6 +555,23 @@ class TestObjectPut {
   }
 
   @Test
+  void testChunkedTransferEncodingCreatesObjectForNonEmptySlashKey() throws Exception {
+    final String path = "dir/";
+    when(objectEndpoint.getContext().getMethod()).thenReturn(HttpMethod.PUT);
+    when(headers.getHeaderString(HttpHeaders.CONTENT_LENGTH)).thenReturn(null);
+    when(headers.getHeaderString("Transfer-Encoding")).thenReturn("chunked");
+    when(headers.getHeaderString(X_AMZ_CONTENT_SHA256)).thenReturn(sha256Hex(CONTENT));
+
+    try (InputStream body = new ByteArrayInputStream(CONTENT.getBytes(StandardCharsets.UTF_8))) {
+      assertSucceeds(() -> objectEndpoint.put(FSO_BUCKET_NAME, path, body));
+    }
+
+    OzoneKeyDetails key = assertKeyContent(fsoBucket, path, CONTENT);
+    assertThat(key.isFile()).as("object").isTrue();
+    assertEquals(CONTENT.length(), key.getDataSize());
+  }
+
+  @Test
   void testDirectoryCreationOverFile() throws Exception {
     // GIVEN
     final String path = "key";
