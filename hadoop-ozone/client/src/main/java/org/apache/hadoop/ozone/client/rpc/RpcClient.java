@@ -55,7 +55,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.crypto.Cipher;
@@ -223,7 +222,6 @@ public class RpcClient implements ClientProtocol {
   private final MemoizedSupplier<ExecutorService> ecReconstructExecutor;
   private final ContainerClientMetrics clientMetrics;
   private final MemoizedSupplier<ExecutorService> writeExecutor;
-  private final AtomicBoolean isS3GRequest = new AtomicBoolean(false);
   private volatile OzoneFsServerDefaults serverDefaults;
   private volatile long serverDefaultsLastUpdate;
   private final long serverDefaultsValidityPeriod;
@@ -2761,11 +2759,6 @@ public class RpcClient implements ClientProtocol {
       S3Auth ozoneSharedSecretAuth) {
     ozoneManagerClient.setThreadLocalS3Auth(ozoneSharedSecretAuth);
     this.s3gUgi = UserGroupInformation.createRemoteUser(getThreadLocalS3Auth().getUserPrincipal());
-  }
-
-  @Override
-  public void setIsS3Request(boolean s3Request) {
-    this.isS3GRequest.set(s3Request);
   }
 
   @Override

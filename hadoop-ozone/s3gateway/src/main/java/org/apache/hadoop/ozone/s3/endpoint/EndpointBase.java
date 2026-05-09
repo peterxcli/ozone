@@ -200,7 +200,6 @@ public abstract class EndpointBase {
     ClientProtocol clientProtocol =
         getClient().getObjectStore().getClientProxy();
     clientProtocol.setThreadLocalS3Auth(s3Auth);
-    clientProtocol.setIsS3Request(true);
 
     bufferSize = (int) getOzoneConfiguration().getStorageSize(
         OZONE_S3G_CLIENT_BUFFER_SIZE_KEY,
