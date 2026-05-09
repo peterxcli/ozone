@@ -155,7 +155,7 @@ final class ObjectEndpointStreaming {
         preCommits.add(checkSha256Hook);
       }
 
-      streamOutput.getKeyDataStreamOutput().setPreCommits(preCommits);
+      streamOutput.setPreCommits(preCommits);
     }
     return Pair.of(md5Hash, writeLen);
   }
@@ -246,7 +246,7 @@ final class ObjectEndpointStreaming {
           };
           preCommits.add(checkContentMD5Hook);
         }
-        streamOutput.getKeyDataStreamOutput().setPreCommits(preCommits);
+        streamOutput.setPreCommits(preCommits);
         ((KeyMetadataAware)streamOutput).getMetadata().put(OzoneConsts.ETAG, eTag);
         METRICS.incPutKeySuccessLength(putLength);
         perf.appendMetaLatencyNanos(metadataLatencyNs);
