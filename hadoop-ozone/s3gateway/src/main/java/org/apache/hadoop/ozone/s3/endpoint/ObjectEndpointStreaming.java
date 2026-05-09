@@ -132,8 +132,7 @@ final class ObjectEndpointStreaming {
       ((KeyMetadataAware)streamOutput).getMetadata().put(OzoneConsts.ETAG, md5Hash);
 
       List<CheckedRunnable<IOException>> preCommits = new ArrayList<>();
-      preCommits.add(EndpointBase.validateContentLength(
-          length, writeLen, keyPath));
+      preCommits.add(EndpointBase.validateContentLength(length, writeLen, keyPath));
       String clientContentMD5 = headers.getHeaderString(S3Consts.CHECKSUM_HEADER);
       if (clientContentMD5 != null) {
         CheckedRunnable<IOException> checkContentMD5Hook = () -> {
@@ -237,8 +236,7 @@ final class ObjectEndpointStreaming {
         eTag = DatatypeConverter.printHexBinary(
             body.getMessageDigest(OzoneConsts.MD5_HASH).digest()).toLowerCase();
         List<CheckedRunnable<IOException>> preCommits = new ArrayList<>();
-        preCommits.add(EndpointBase.validateContentLength(
-            length, putLength, key));
+        preCommits.add(EndpointBase.validateContentLength(length, putLength, key));
         String clientContentMD5 = headers.getHeaderString(S3Consts.CHECKSUM_HEADER);
         if (clientContentMD5 != null) {
           CheckedRunnable<IOException> checkContentMD5Hook = () -> {

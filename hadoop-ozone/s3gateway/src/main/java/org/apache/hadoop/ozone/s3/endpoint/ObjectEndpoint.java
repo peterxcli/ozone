@@ -297,8 +297,7 @@ public class ObjectEndpoint extends ObjectOperationHandler {
           output.getMetadata().put(OzoneConsts.ETAG, md5Hash);
 
           List<CheckedRunnable<IOException>> preCommits = new ArrayList<>();
-          preCommits.add(validateContentLength(
-              length, putLength, keyPath));
+          preCommits.add(validateContentLength(length, putLength, keyPath));
 
           String clientContentMD5 = getHeaders().getHeaderString(S3Consts.CHECKSUM_HEADER);
           if (clientContentMD5 != null) {
