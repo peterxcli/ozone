@@ -104,20 +104,22 @@ public class TestUploadWithStream {
   public void testUploadDoesNotCommitWhenBodyReadFails() throws Exception {
     OzoneBucket bucket = client.getObjectStore().getS3Bucket(S3BUCKET);
     byte[] keyContent = S3_COPY_EXISTING_KEY_CONTENT.getBytes(UTF_8);
-    MultiDigestInputStream body = new MultiDigestInputStream(
-        new FailingInputStream(keyContent, 5),
-        Collections.singletonList(MessageDigest.getInstance(OzoneConsts.MD5_HASH)));
+    try (FailingInputStream failing = new FailingInputStream(keyContent, 5);
+        MultiDigestInputStream body = new MultiDigestInputStream(failing,
+            Collections.singletonList(
+                MessageDigest.getInstance(OzoneConsts.MD5_HASH)))) {
 
-    IOException ex = assertThrows(IOException.class,
-        () -> ObjectEndpointStreaming.put(bucket, S3KEY, keyContent.length,
-            ReplicationConfig.fromTypeAndFactor(ReplicationType.RATIS,
-                ReplicationFactor.THREE), rest.getChunkSize(),
-            new HashMap<>(), new HashMap<>(), body, rest.getHeaders(), true,
-            new AuditLogger.PerformanceStringBuilder(),
-            S3ConditionalRequest.parseWriteConditions(rest.getHeaders(),
-                S3KEY)));
-    assertEquals("upload interrupted", ex.getMessage());
-    assertThrows(IOException.class, () -> bucket.getKey(S3KEY));
+      IOException ex = assertThrows(IOException.class,
+          () -> ObjectEndpointStreaming.put(bucket, S3KEY, keyContent.length,
+              ReplicationConfig.fromTypeAndFactor(ReplicationType.RATIS,
+                  ReplicationFactor.THREE), rest.getChunkSize(),
+              new HashMap<>(), new HashMap<>(), body, rest.getHeaders(), true,
+              new AuditLogger.PerformanceStringBuilder(),
+              S3ConditionalRequest.parseWriteConditions(rest.getHeaders(),
+                  S3KEY)));
+      assertEquals("upload interrupted", ex.getMessage());
+      assertThrows(IOException.class, () -> bucket.getKey(S3KEY));
+    }
   }
 
   @Test
