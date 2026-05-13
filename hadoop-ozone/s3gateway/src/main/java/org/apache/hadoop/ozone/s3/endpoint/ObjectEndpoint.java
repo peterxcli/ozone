@@ -54,7 +54,6 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -283,28 +282,27 @@ public class ObjectEndpoint extends ObjectOperationHandler {
       } else {
         final String amzContentSha256Header =
             validateSignatureHeader(getHeaders(), keyPath, signatureInfo.isSignPayload());
-        try (OzoneOutputStream output = openKeyForPut(
-            volume.getName(), bucketName, keyPath, length,
-            replicationConfig, customMetadata, tags, writeConditions)) {
+        final long expectedLength = length;
+        try (S3ObjectWriteGuard output =
+            new S3ObjectWriteGuard(openKeyForPut(
+                volume.getName(), bucketName, keyPath, expectedLength,
+                replicationConfig, customMetadata, tags, writeConditions),
+                expectedLength, keyPath)) {
           long metadataLatencyNs =
               getMetrics().updatePutKeyMetadataStats(startNanos);
           perf.appendMetaLatencyNanos(metadataLatencyNs);
-          putLength = IOUtils.copyLarge(multiDigestInputStream, output, 0, length,
-              new byte[getIOBufferSize(length)]);
+          putLength = output.copyFrom(multiDigestInputStream, getIOBufferSize(expectedLength));
           md5Hash = DatatypeConverter.printHexBinary(
                   multiDigestInputStream.getMessageDigest(OzoneConsts.MD5_HASH).digest())
               .toLowerCase();
           output.getMetadata().put(OzoneConsts.ETAG, md5Hash);
-
-          List<CheckedRunnable<IOException>> preCommits = new ArrayList<>();
-          preCommits.add(validateContentLength(length, putLength, keyPath));
 
           String clientContentMD5 = getHeaders().getHeaderString(S3Consts.CHECKSUM_HEADER);
           if (clientContentMD5 != null) {
             CheckedRunnable<IOException> checkContentMD5Hook = () -> {
               S3Utils.validateContentMD5(clientContentMD5, md5Hash, keyPath);
             };
-            preCommits.add(checkContentMD5Hook);
+            output.addPreCommit(checkContentMD5Hook);
           }
 
           // If sha256Digest exists, this request must validate x-amz-content-sha256
@@ -317,9 +315,8 @@ public class ObjectEndpoint extends ObjectOperationHandler {
                 throw S3ErrorTable.newError(S3ErrorTable.X_AMZ_CONTENT_SHA256_MISMATCH, keyPath);
               }
             };
-            preCommits.add(checkSha256Hook);
+            output.addPreCommit(checkSha256Hook);
           }
-          output.getKeyOutputStream().setPreCommits(preCommits);
         }
       }
       getMetrics().incPutKeySuccessLength(putLength);
@@ -883,18 +880,19 @@ public class ObjectEndpoint extends ObjectOperationHandler {
                       + rangeHeader.getStartOffset() + " actual: " + skipped);
             }
           }
-          try (OzoneOutputStream ozoneOutputStream = getClientProtocol()
-              .createMultipartKey(volume.getName(), bucketName, key, length,
-                  partNumber, uploadID)) {
+          final long expectedLength = length;
+          OzoneOutputStream ozoneOutputStream = getClientProtocol()
+              .createMultipartKey(volume.getName(), bucketName, key,
+                  expectedLength, partNumber, uploadID);
+          try (S3ObjectWriteGuard writeGuard =
+              new S3ObjectWriteGuard(ozoneOutputStream, expectedLength, key)) {
             metadataLatencyNs =
                 getMetrics().updateCopyKeyMetadataStats(startNanos);
-            copyLength = IOUtils.copyLarge(sourceObject, ozoneOutputStream, 0, length,
-                new byte[getIOBufferSize(length)]);
-            ozoneOutputStream.getMetadata()
-                .putAll(sourceKeyDetails.getMetadata());
-            String raw = ozoneOutputStream.getMetadata().get(OzoneConsts.ETAG);
+            copyLength = writeGuard.copyFrom(sourceObject, getIOBufferSize(expectedLength));
+            writeGuard.getMetadata().putAll(sourceKeyDetails.getMetadata());
+            String raw = writeGuard.getMetadata().get(OzoneConsts.ETAG);
             if (raw != null) {
-              ozoneOutputStream.getMetadata().put(OzoneConsts.ETAG, stripQuotes(raw));
+              writeGuard.getMetadata().put(OzoneConsts.ETAG, stripQuotes(raw));
             }
             outputStream = ozoneOutputStream;
           }
@@ -903,26 +901,23 @@ public class ObjectEndpoint extends ObjectOperationHandler {
         }
       } else {
         long putLength;
-        try (OzoneOutputStream ozoneOutputStream = getClientProtocol()
-            .createMultipartKey(volume.getName(), bucketName, key, length,
-                partNumber, uploadID)) {
+        final long expectedLength = length;
+        OzoneOutputStream ozoneOutputStream = getClientProtocol()
+            .createMultipartKey(volume.getName(), bucketName, key, expectedLength, partNumber, uploadID);
+        try (S3ObjectWriteGuard writeGuard = new S3ObjectWriteGuard(ozoneOutputStream, expectedLength, key)) {
           metadataLatencyNs =
               getMetrics().updatePutKeyMetadataStats(startNanos);
-          putLength = IOUtils.copyLarge(multiDigestInputStream, ozoneOutputStream, 0, length,
-              new byte[getIOBufferSize(length)]);
+          putLength = writeGuard.copyFrom(multiDigestInputStream, getIOBufferSize(expectedLength));
           byte[] digest = multiDigestInputStream.getMessageDigest(OzoneConsts.MD5_HASH).digest();
           String md5Hash = DatatypeConverter.printHexBinary(digest).toLowerCase();
-          List<CheckedRunnable<IOException>> preCommits = new ArrayList<>();
-          preCommits.add(validateContentLength(length, putLength, key));
           String clientContentMD5 = getHeaders().getHeaderString(S3Consts.CHECKSUM_HEADER);
           if (clientContentMD5 != null) {
             CheckedRunnable<IOException> checkContentMD5Hook = () -> {
               S3Utils.validateContentMD5(clientContentMD5, md5Hash, key);
             };
-            preCommits.add(checkContentMD5Hook);
+            writeGuard.addPreCommit(checkContentMD5Hook);
           }
-          ozoneOutputStream.getKeyOutputStream().setPreCommits(preCommits);
-          ozoneOutputStream.getMetadata().put(OzoneConsts.ETAG, md5Hash);
+          writeGuard.getMetadata().put(OzoneConsts.ETAG, md5Hash);
           outputStream = ozoneOutputStream;
         }
         getMetrics().incPutKeySuccessLength(putLength);
@@ -990,13 +985,16 @@ public class ObjectEndpoint extends ObjectOperationHandler {
           .copyKeyWithStream(volume.getBucket(destBucket), destKey, srcKeyLen,
               getChunkSize(), replication, metadata, src, perf, startNanos, tags);
     } else {
-      try (OzoneOutputStream dest = getClientProtocol()
-          .createKey(volume.getName(), destBucket, destKey, srcKeyLen,
-              replication, metadata, tags)) {
+      final long expectedLength = srcKeyLen;
+      try (S3ObjectWriteGuard dest =
+          new S3ObjectWriteGuard(getClientProtocol()
+              .createKey(volume.getName(), destBucket, destKey,
+                  expectedLength, replication, metadata, tags),
+              expectedLength, destKey)) {
         long metadataLatencyNs =
             getMetrics().updateCopyKeyMetadataStats(startNanos);
         perf.appendMetaLatencyNanos(metadataLatencyNs);
-        copyLength = IOUtils.copyLarge(src, dest, 0, srcKeyLen, new byte[getIOBufferSize(srcKeyLen)]);
+        copyLength = dest.copyFrom(src, getIOBufferSize(expectedLength));
         String md5Hash = DatatypeConverter.printHexBinary(src.getMessageDigest().digest()).toLowerCase();
         dest.getMetadata().put(OzoneConsts.ETAG, md5Hash);
       }
