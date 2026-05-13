@@ -178,12 +178,14 @@ final class ObjectEndpointStreaming {
       ReplicationConfig replicationConfig,
       Map<String, String> keyMetadata,
       DigestInputStream body, PerformanceStringBuilder perf, long startNanos,
-      Map<String, String> tags)
+      Map<String, String> tags,
+      S3ConditionalRequest.WriteConditions writeConditions)
       throws IOException {
     long writeLen;
     try (S3ObjectStreamingWriteGuard writeGuard =
-        new S3ObjectStreamingWriteGuard(bucket.createStreamKey(keyPath,
-            length, replicationConfig, keyMetadata, tags), length, keyPath)) {
+        new S3ObjectStreamingWriteGuard(openStreamKeyForPut(bucket,
+            keyPath, length, replicationConfig, keyMetadata, tags,
+            writeConditions), length, keyPath)) {
       long metadataLatencyNs =
           METRICS.updateCopyKeyMetadataStats(startNanos);
       writeLen = writeGuard.copyFrom(body, bufferSize);
