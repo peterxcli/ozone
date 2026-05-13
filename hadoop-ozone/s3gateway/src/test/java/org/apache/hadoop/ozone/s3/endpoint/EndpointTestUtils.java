@@ -25,6 +25,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import javax.ws.rs.HttpMethod;
 import javax.ws.rs.core.HttpHeaders;
@@ -285,6 +286,38 @@ public final class EndpointTestUtils {
 
   private static long contentLength(String content) {
     return content != null ? content.getBytes(UTF_8).length : 0;
+  }
+
+  static final class FailingInputStream extends InputStream {
+
+    private final byte[] content;
+    private final int failAfterBytes;
+    private int position;
+
+    FailingInputStream(byte[] content, int failAfterBytes) {
+      this.content = content;
+      this.failAfterBytes = failAfterBytes;
+    }
+
+    @Override
+    public int read(byte[] buffer, int offset, int length) throws IOException {
+      if (position >= failAfterBytes) {
+        throw new IOException("upload interrupted");
+      }
+
+      int bytesToRead = Math.min(length, failAfterBytes - position);
+      System.arraycopy(content, position, buffer, offset, bytesToRead);
+      position += bytesToRead;
+      return bytesToRead;
+    }
+
+    @Override
+    public int read() throws IOException {
+      if (position >= failAfterBytes) {
+        throw new IOException("upload interrupted");
+      }
+      return content[position++];
+    }
   }
 
   private EndpointTestUtils() {

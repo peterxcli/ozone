@@ -18,6 +18,7 @@
 package org.apache.hadoop.ozone.s3.endpoint;
 
 import static org.apache.hadoop.ozone.client.OzoneClientTestUtils.assertKeyContent;
+import static org.apache.hadoop.ozone.s3.endpoint.EndpointTestUtils.FailingInputStream;
 import static org.apache.hadoop.ozone.s3.endpoint.EndpointTestUtils.assertErrorResponse;
 import static org.apache.hadoop.ozone.s3.endpoint.EndpointTestUtils.assertSucceeds;
 import static org.apache.hadoop.ozone.s3.endpoint.EndpointTestUtils.put;
@@ -57,7 +58,6 @@ import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -808,37 +808,5 @@ class TestObjectPut {
     when(objectEndpoint.getContext().getMethod()).thenReturn(HttpMethod.PUT);
     when(headers.getHeaderString(HttpHeaders.CONTENT_LENGTH))
         .thenReturn(String.valueOf(length));
-  }
-
-  private static final class FailingInputStream extends InputStream {
-
-    private final byte[] content;
-    private final int failAfterBytes;
-    private int position;
-
-    private FailingInputStream(byte[] content, int failAfterBytes) {
-      this.content = content;
-      this.failAfterBytes = failAfterBytes;
-    }
-
-    @Override
-    public int read(byte[] buffer, int offset, int length) throws IOException {
-      if (position >= failAfterBytes) {
-        throw new IOException("upload interrupted");
-      }
-
-      int bytesToRead = Math.min(length, failAfterBytes - position);
-      System.arraycopy(content, position, buffer, offset, bytesToRead);
-      position += bytesToRead;
-      return bytesToRead;
-    }
-
-    @Override
-    public int read() throws IOException {
-      if (position >= failAfterBytes) {
-        throw new IOException("upload interrupted");
-      }
-      return content[position++];
-    }
   }
 }
