@@ -321,7 +321,9 @@ public class HddsDispatcher implements ContainerDispatcher, Auditor {
 
         if (responseProto.getResult() != Result.SUCCESS) {
           StorageContainerException sce = new StorageContainerException(
-              "ContainerID " + containerID + " creation failed",
+              "ContainerID " + containerID + " creation failed, result: "
+                  + responseProto.getResult() + ", message: "
+                  + responseProto.getMessage(),
               responseProto.getResult());
           audit(action, eventType, msg, dispatcherContext, AuditEventStatus.FAILURE, sce);
           return ContainerUtils.logAndReturnError(LOG, sce, msg);
