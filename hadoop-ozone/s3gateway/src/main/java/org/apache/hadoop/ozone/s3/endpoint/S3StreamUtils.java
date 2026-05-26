@@ -20,11 +20,19 @@ package org.apache.hadoop.ozone.s3.endpoint;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 /**
  * Stream copy helpers for S3 Gateway request hot paths.
  */
 final class S3StreamUtils {
+
+  private static final int MAX_RETAINED_BUFFER_SIZE = 4 * 1024 * 1024;
+  private static final int MAX_RETAINED_BUFFERS = Math.max(8,
+      Math.min(64, Runtime.getRuntime().availableProcessors() * 4));
+  private static final BlockingQueue<byte[]> COPY_BUFFERS =
+      new ArrayBlockingQueue<>(MAX_RETAINED_BUFFERS);
 
   private S3StreamUtils() {
   }
@@ -41,28 +49,54 @@ final class S3StreamUtils {
       return 0;
     }
 
-    byte[] buffer = new byte[bufferSize];
-    long remaining = length;
-    long copied = 0;
-    while (remaining > 0) {
-      int bytesToRead = (int) Math.min(buffer.length, remaining);
-      int bytesRead = source.read(buffer, 0, bytesToRead);
-      if (bytesRead < 0) {
-        break;
-      }
-      if (bytesRead == 0) {
-        int nextByte = source.read();
-        if (nextByte < 0) {
+    byte[] buffer = acquireBuffer(bufferSize);
+    try {
+      long remaining = length;
+      long copied = 0;
+      while (remaining > 0) {
+        int bytesToRead = (int) Math.min(buffer.length, remaining);
+        int bytesRead = source.read(buffer, 0, bytesToRead);
+        if (bytesRead < 0) {
           break;
         }
-        target.write(nextByte);
-        bytesRead = 1;
-      } else {
-        target.write(buffer, 0, bytesRead);
+        if (bytesRead == 0) {
+          int nextByte = source.read();
+          if (nextByte < 0) {
+            break;
+          }
+          target.write(nextByte);
+          bytesRead = 1;
+        } else {
+          target.write(buffer, 0, bytesRead);
+        }
+        copied += bytesRead;
+        remaining -= bytesRead;
       }
-      copied += bytesRead;
-      remaining -= bytesRead;
+      return copied;
+    } finally {
+      releaseBuffer(buffer);
     }
-    return copied;
+  }
+
+  private static byte[] acquireBuffer(int bufferSize) {
+    byte[] buffer = COPY_BUFFERS.poll();
+    if (buffer == null || buffer.length < bufferSize) {
+      return new byte[bufferSize];
+    }
+    return buffer;
+  }
+
+  private static void releaseBuffer(byte[] buffer) {
+    if (buffer.length <= MAX_RETAINED_BUFFER_SIZE) {
+      COPY_BUFFERS.offer(buffer);
+    }
+  }
+
+  static void clearBuffersForTesting() {
+    COPY_BUFFERS.clear();
+  }
+
+  static int retainedBufferCountForTesting() {
+    return COPY_BUFFERS.size();
   }
 }
