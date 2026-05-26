@@ -18,6 +18,7 @@
 package org.apache.hadoop.ozone.common;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -37,6 +38,12 @@ public class TestChecksumByteBuffer {
     final Checksum expected = new PureJavaCrc32();
     final ChecksumByteBuffer testee = ChecksumByteBufferFactory.crc32Impl();
     new VerifyChecksumByteBuffer(expected, testee).testCorrectness();
+  }
+
+  @Test
+  public void testCrc32ImplUsesAllocationFreeByteBufferPath() {
+    assertInstanceOf(PureJavaCrc32ByteBuffer.class,
+        ChecksumByteBufferFactory.crc32Impl());
   }
 
   @Test

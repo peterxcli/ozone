@@ -20,7 +20,6 @@ package org.apache.hadoop.ozone.common;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.util.zip.CRC32;
 import java.util.zip.Checksum;
 import org.apache.hadoop.hdds.JavaUtils;
 import org.apache.hadoop.util.PureJavaCrc32C;
@@ -71,7 +70,7 @@ public final class ChecksumByteBufferFactory {
   }
 
   public static ChecksumByteBuffer crc32Impl() {
-    return new ChecksumByteBufferImpl(new CRC32());
+    return new PureJavaCrc32ByteBuffer();
   }
 
   public static ChecksumByteBuffer crc32CImpl() {
