@@ -39,6 +39,7 @@ import java.util.stream.Collectors;
 import javax.xml.bind.DatatypeConverter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.fs.Seekable;
 import org.apache.hadoop.hdds.client.RatisReplicationConfig;
 import org.apache.hadoop.hdds.client.ReplicationConfig;
 import org.apache.hadoop.hdds.client.ReplicationFactor;
@@ -365,7 +366,8 @@ public final class OzoneBucketStub extends OzoneBucket {
 
   @Override
   public OzoneInputStream readKey(String key) throws IOException {
-    return new OzoneInputStream(new ByteArrayInputStream(keyContents.get(key)));
+    return new OzoneInputStream(
+        new SeekableByteArrayInputStream(keyContents.get(key)));
   }
 
   @Override
@@ -728,6 +730,32 @@ public final class OzoneBucketStub extends OzoneBucket {
       return eTag;
     }
 
+  }
+
+  private static final class SeekableByteArrayInputStream
+      extends ByteArrayInputStream implements Seekable {
+
+    private SeekableByteArrayInputStream(byte[] buf) {
+      super(buf);
+    }
+
+    @Override
+    public synchronized void seek(long position) throws IOException {
+      if (position < 0 || position > count) {
+        throw new IOException("Invalid seek position: " + position);
+      }
+      pos = (int) position;
+    }
+
+    @Override
+    public synchronized long getPos() {
+      return pos;
+    }
+
+    @Override
+    public boolean seekToNewSource(long targetPos) {
+      return false;
+    }
   }
 
   @Override

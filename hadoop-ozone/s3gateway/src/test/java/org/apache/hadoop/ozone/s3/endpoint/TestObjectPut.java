@@ -63,6 +63,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.ws.rs.HttpMethod;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MultivaluedHashMap;
 import javax.ws.rs.core.MultivaluedMap;
@@ -247,22 +248,34 @@ class TestObjectPut {
   }
 
   @Test
-  public void testPutObjectMessageDigestResetDuringException() {
+  public void testPutObjectMessageDigestResetDuringException() throws Exception {
     MessageDigest messageDigest = mock(MessageDigest.class);
-    try (MockedStatic<IOUtils> mocked = mockStatic(IOUtils.class);
-        MockedStatic<EndpointBase> endpoint = mockStatic(EndpointBase.class)) {
+    try (MockedStatic<EndpointBase> endpoint = mockStatic(EndpointBase.class)) {
       // For example, EOFException during put-object due to client cancelling the operation before it completes
-      mocked.when(() -> IOUtils.copyLarge(any(InputStream.class), any(OutputStream.class), anyLong(),
-              anyLong(), any(byte[].class)))
-          .thenThrow(IOException.class);
       endpoint.when(EndpointBase::getMD5DigestInstance).thenReturn(messageDigest);
 
-      assertThrows(IOException.class, () -> putObject(CONTENT).close());
+      try (InputStream body = new FailingInputStream(CONTENT, 1)) {
+        assertThrows(IOException.class, () ->
+            putObject(BUCKET_NAME, KEY_NAME, body, CONTENT.length()).close());
+      }
 
       // Verify that the message digest is reset so that the instance can be reused for the
       // next request in the same thread
       verify(messageDigest, times(1)).reset();
     }
+  }
+
+  @Test
+  public void testPutObjectWithoutCommonsIoCopyLarge() throws Exception {
+    try (MockedStatic<IOUtils> mocked = mockStatic(IOUtils.class)) {
+      mocked.when(() -> IOUtils.copyLarge(any(InputStream.class), any(OutputStream.class), anyLong(),
+              anyLong(), any(byte[].class)))
+          .thenThrow(new IOException("Unexpected IOUtils.copyLarge"));
+
+      assertSucceeds(() -> putObject(CONTENT));
+    }
+
+    assertKeyContent(bucket, KEY_NAME, CONTENT);
   }
 
   @Test
@@ -668,8 +681,52 @@ class TestObjectPut {
     return put(objectEndpoint, bucketName, keyName, CONTENT);
   }
 
+  private Response putObject(String bucketName, String keyName,
+      InputStream body, long length) throws IOException, OS3Exception {
+    when(objectEndpoint.getContext().getMethod()).thenReturn(HttpMethod.PUT);
+    when(headers.getHeaderString(HttpHeaders.CONTENT_LENGTH)).thenReturn(String.valueOf(length));
+    return objectEndpoint.put(bucketName, keyName, body);
+  }
+
   /** Put object at {@link #BUCKET_NAME}/{@link #KEY_NAME} with the specified content. */
   private Response putObject(String content) throws IOException, OS3Exception {
     return put(objectEndpoint, BUCKET_NAME, KEY_NAME, content);
+  }
+
+  private static final class FailingInputStream extends InputStream {
+    private final byte[] content;
+    private final int failAfterBytes;
+    private int position;
+
+    private FailingInputStream(String content, int failAfterBytes) {
+      this.content = content.getBytes(StandardCharsets.UTF_8);
+      this.failAfterBytes = failAfterBytes;
+    }
+
+    @Override
+    public int read() throws IOException {
+      if (position >= failAfterBytes) {
+        throw new IOException("client disconnected");
+      }
+      if (position >= content.length) {
+        return -1;
+      }
+      return content[position++];
+    }
+
+    @Override
+    public int read(byte[] buffer, int offset, int length) throws IOException {
+      if (position >= failAfterBytes) {
+        throw new IOException("client disconnected");
+      }
+      if (position >= content.length) {
+        return -1;
+      }
+      int bytesToCopy = Math.min(length,
+          Math.min(failAfterBytes, content.length) - position);
+      System.arraycopy(content, position, buffer, offset, bytesToCopy);
+      position += bytesToCopy;
+      return bytesToCopy;
+    }
   }
 }

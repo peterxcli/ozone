@@ -290,8 +290,8 @@ public class ObjectEndpoint extends ObjectOperationHandler {
           long metadataLatencyNs =
               getMetrics().updatePutKeyMetadataStats(startNanos);
           perf.appendMetaLatencyNanos(metadataLatencyNs);
-          putLength = IOUtils.copyLarge(multiDigestInputStream, output, 0, length,
-              new byte[getIOBufferSize(length)]);
+          putLength = S3StreamUtils.copy(multiDigestInputStream, output,
+              length, getIOBufferSize(length));
           md5Hash = DatatypeConverter.printHexBinary(
                   multiDigestInputStream.getMessageDigest(OzoneConsts.MD5_HASH).digest())
               .toLowerCase();
@@ -421,7 +421,9 @@ public class ObjectEndpoint extends ObjectOperationHandler {
       if (rangeHeaderVal == null || rangeHeader.isReadFull()) {
         StreamingOutput output = dest -> {
           try (OzoneInputStream key = keyDetails.getContent()) {
-            long readLength = IOUtils.copy(key, dest, getIOBufferSize(keyDetails.getDataSize()));
+            long readLength = S3StreamUtils.copy(key, dest,
+                keyDetails.getDataSize(),
+                getIOBufferSize(keyDetails.getDataSize()));
             getMetrics().incGetKeySuccessLength(readLength);
             perf.appendSizeBytes(readLength);
           }
@@ -440,8 +442,8 @@ public class ObjectEndpoint extends ObjectOperationHandler {
         StreamingOutput output = dest -> {
           try (OzoneInputStream ozoneInputStream = keyDetails.getContent()) {
             ozoneInputStream.seek(startOffset);
-            long readLength = IOUtils.copyLarge(ozoneInputStream, dest, 0,
-                copyLength, new byte[getIOBufferSize(copyLength)]);
+            long readLength = S3StreamUtils.copy(ozoneInputStream, dest,
+                copyLength, getIOBufferSize(copyLength));
             getMetrics().incGetKeySuccessLength(readLength);
             perf.appendSizeBytes(readLength);
           }

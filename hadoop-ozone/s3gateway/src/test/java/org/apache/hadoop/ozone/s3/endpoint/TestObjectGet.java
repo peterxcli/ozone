@@ -35,17 +35,26 @@ import static org.apache.hadoop.ozone.s3.util.S3Consts.X_AMZ_CONTENT_SHA256;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.StreamingOutput;
+import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.client.OzoneBucket;
@@ -56,6 +65,7 @@ import org.apache.hadoop.ozone.s3.exception.OS3Exception;
 import org.apache.hadoop.ozone.s3.util.RFC1123Util;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 /**
  * Test get object.
@@ -120,6 +130,19 @@ public class TestObjectGet {
         .parse(response.getHeaderString("Last-Modified"));
 
     assertNull(response.getHeaderString(TAG_COUNT_HEADER));
+  }
+
+  @Test
+  public void testGetStreamsWithoutCommonsIoCopy() throws Exception {
+    try (MockedStatic<IOUtils> ioUtils = mockStatic(IOUtils.class)) {
+      ioUtils.when(() -> IOUtils.copy(any(InputStream.class),
+              any(OutputStream.class), anyInt()))
+          .thenThrow(new IOException("Unexpected IOUtils.copy"));
+
+      Response response = get(rest, BUCKET_NAME, KEY_NAME);
+
+      assertEquals(CONTENT, readStreamingEntity(response));
+    }
   }
 
   @Test
@@ -282,6 +305,22 @@ public class TestObjectGet {
   }
 
   @Test
+  public void testRangeGetStreamsWithoutCommonsIoCopyLarge() throws Exception {
+    when(headers.getHeaderString(RANGE_HEADER)).thenReturn("bytes=2-5");
+
+    try (MockedStatic<IOUtils> ioUtils = mockStatic(IOUtils.class)) {
+      ioUtils.when(() -> IOUtils.copyLarge(any(InputStream.class),
+              any(OutputStream.class), anyLong(), anyLong(),
+              any(byte[].class)))
+          .thenThrow(new IOException("Unexpected IOUtils.copyLarge"));
+
+      Response response = get(rest, BUCKET_NAME, KEY_NAME);
+
+      assertEquals("2345", readStreamingEntity(response));
+    }
+  }
+
+  @Test
   public void getStatusCode() throws IOException, OS3Exception {
     Response response;
     response = get(rest, BUCKET_NAME, KEY_NAME);
@@ -328,5 +367,12 @@ public class TestObjectGet {
   private static String formatHttpDate(Instant instant) {
     return RFC1123Util.FORMAT.format(
         instant.atZone(ZoneId.of(OzoneConsts.OZONE_TIME_ZONE)));
+  }
+
+  private static String readStreamingEntity(Response response)
+      throws IOException {
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    ((StreamingOutput) response.getEntity()).write(output);
+    return output.toString();
   }
 }
