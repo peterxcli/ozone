@@ -116,6 +116,7 @@ public class BlockDataStreamOutputEntryPool implements KeyMetadataAware {
 
   private void addKeyLocationInfo(OmKeyLocationInfo subKeyInfo) {
     Objects.requireNonNull(subKeyInfo.getPipeline(), "subKeyInfo.getPipeline() == null");
+    final long expectedDataLength = expectedDataLength(subKeyInfo);
     BlockDataStreamOutputEntry.Builder builder =
         new BlockDataStreamOutputEntry.Builder()
             .setBlockID(subKeyInfo.getBlockID())
@@ -124,9 +125,23 @@ public class BlockDataStreamOutputEntryPool implements KeyMetadataAware {
             .setPipeline(subKeyInfo.getPipeline())
             .setConfig(config)
             .setLength(subKeyInfo.getLength())
+            .setExpectedDataLength(expectedDataLength)
             .setToken(subKeyInfo.getToken())
             .setBufferList(bufferList);
     streamEntries.add(builder.build());
+  }
+
+  private long expectedDataLength(OmKeyLocationInfo subKeyInfo) {
+    final long keyDataSize = keyArgs.getDataSize();
+    if (keyDataSize <= 0) {
+      return subKeyInfo.getLength();
+    }
+    final long assigned = streamEntries.stream()
+        .mapToLong(BlockDataStreamOutputEntry::getExpectedDataLength)
+        .sum();
+    final long remaining = keyDataSize - assigned;
+    return remaining > 0 ? Math.min(subKeyInfo.getLength(), remaining) :
+        subKeyInfo.getLength();
   }
 
   public List<OmKeyLocationInfo> getLocationInfoList()  {

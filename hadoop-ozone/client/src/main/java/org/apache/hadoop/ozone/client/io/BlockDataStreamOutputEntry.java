@@ -48,6 +48,7 @@ public final class BlockDataStreamOutputEntry
   private final Pipeline pipeline;
   // total number of bytes that should be written to this stream
   private final long length;
+  private final long expectedDataLength;
   // the current position of this stream 0 <= currentPosition < length
   private long currentPosition;
   private final Token<OzoneBlockTokenIdentifier> token;
@@ -59,6 +60,7 @@ public final class BlockDataStreamOutputEntry
       XceiverClientFactory xceiverClientManager,
       Pipeline pipeline,
       long length,
+      long expectedDataLength,
       Token<OzoneBlockTokenIdentifier> token,
       OzoneClientConfig config,
       List<StreamBuffer> bufferList
@@ -71,12 +73,17 @@ public final class BlockDataStreamOutputEntry
     this.pipeline = pipeline;
     this.token = token;
     this.length = length;
+    this.expectedDataLength = expectedDataLength;
     this.currentPosition = 0;
     this.bufferList = bufferList;
   }
 
   long getLength() {
     return length;
+  }
+
+  long getExpectedDataLength() {
+    return expectedDataLength;
   }
 
   Token<OzoneBlockTokenIdentifier> getToken() {
@@ -97,7 +104,7 @@ public final class BlockDataStreamOutputEntry
     if (this.byteBufferStreamOutput == null) {
       this.byteBufferStreamOutput =
           new BlockDataStreamOutput(blockID, xceiverClientManager, pipeline,
-              config, token, length, bufferList);
+              config, token, expectedDataLength, bufferList);
     }
   }
 
@@ -208,6 +215,7 @@ public final class BlockDataStreamOutputEntry
     private XceiverClientFactory xceiverClientManager;
     private Pipeline pipeline;
     private long length;
+    private long expectedDataLength;
     private Token<OzoneBlockTokenIdentifier> token;
     private OzoneClientConfig config;
     private List<StreamBuffer> bufferList;
@@ -239,6 +247,11 @@ public final class BlockDataStreamOutputEntry
       return this;
     }
 
+    public Builder setExpectedDataLength(long expectedLen) {
+      this.expectedDataLength = expectedLen;
+      return this;
+    }
+
     public Builder setConfig(OzoneClientConfig clientConfig) {
       this.config = clientConfig;
       return this;
@@ -260,6 +273,7 @@ public final class BlockDataStreamOutputEntry
           xceiverClientManager,
           pipeline,
           length,
+          expectedDataLength,
           token, config, bufferList);
     }
   }
@@ -293,4 +307,3 @@ public final class BlockDataStreamOutputEntry
     this.currentPosition = curPosition;
   }
 }
-
