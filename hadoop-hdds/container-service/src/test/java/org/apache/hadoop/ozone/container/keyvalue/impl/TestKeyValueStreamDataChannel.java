@@ -311,7 +311,7 @@ public class TestKeyValueStreamDataChannel {
       try {
         putBlockRequest = readPutBlockRequest(buf);
         // write the remaining data
-        writeFully(buf.nioBuffer(), writeMethod);
+        writeFully(buf, writeMethod);
       } finally {
         ref.release();
       }

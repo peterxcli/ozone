@@ -87,6 +87,13 @@ public class KeyValueStreamDataChannel extends StreamDataChannelBase {
     }
   }
 
+  static void writeFully(ByteBuf b, WriteMethod writeMethod)
+      throws IOException {
+    for (ByteBuffer buffer : b.nioBuffers()) {
+      writeFully(buffer, writeMethod);
+    }
+  }
+
   void assertOpen() throws IOException {
     if (closed.get()) {
       throw new IOException("Already closed: " + this);
@@ -122,7 +129,7 @@ public class KeyValueStreamDataChannel extends StreamDataChannelBase {
     try {
       setEndIndex(buf);
       // write the remaining data
-      writeFully(buf.nioBuffer(), super::writeFileChannel);
+      writeFully(buf, super::writeFileChannel);
     } finally {
       ref.release();
     }
@@ -133,12 +140,14 @@ public class KeyValueStreamDataChannel extends StreamDataChannelBase {
     LOG.debug("{}, lengthIndex = {}, readerIndex = {}",
         b, lengthIndex, readerIndex);
     if (lengthIndex > readerIndex) {
-      b.readerIndex(lengthIndex);
+      Preconditions.checkState(lengthIndex < readerIndex + b.readableBytes(),
+          "lengthIndex %s is outside readable range [%s, %s)", lengthIndex,
+          readerIndex, readerIndex + b.readableBytes());
     } else {
       Preconditions.checkState(lengthIndex == readerIndex);
     }
     RatisHelper.debug(b, "readProtoLength", LOG);
-    return b.nioBuffer().getInt();
+    return b.getInt(lengthIndex);
   }
 
   /** Set end index to the proto index in order to ignore the proto. */
