@@ -92,6 +92,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -198,12 +199,22 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
 
     OzoneConfiguration conf = new OzoneConfiguration(seedConfiguration);
     conf.set(OZONE_METADATA_DIRS, createDirectory("metadata").toString());
-    conf.set(OZONE_REPLICATION, ReplicationFactor.ONE.name());
-    conf.set(OZONE_REPLICATION_TYPE, ReplicationType.STAND_ALONE.name());
-    conf.set(OZONE_SERVER_DEFAULT_REPLICATION_KEY, ReplicationFactor.ONE.name());
-    conf.set(OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY,
-        ReplicationType.STAND_ALONE.name());
-    conf.setBoolean(HDDS_CONTAINER_RATIS_ENABLED_KEY, false);
+    boolean ratisEnabled = isExplicitlyConfigured(conf,
+        HDDS_CONTAINER_RATIS_ENABLED_KEY) &&
+        conf.getBoolean(HDDS_CONTAINER_RATIS_ENABLED_KEY, false);
+    ReplicationType localReplicationType = ratisEnabled ?
+        ReplicationType.RATIS : ReplicationType.STAND_ALONE;
+    setIfNotExplicitlyConfigured(conf, OZONE_REPLICATION,
+        ReplicationFactor.ONE.name());
+    setIfNotExplicitlyConfigured(conf, OZONE_REPLICATION_TYPE,
+        localReplicationType.name());
+    setIfNotExplicitlyConfigured(conf, OZONE_SERVER_DEFAULT_REPLICATION_KEY,
+        ReplicationFactor.ONE.name());
+    setIfNotExplicitlyConfigured(conf, OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY,
+        localReplicationType.name());
+    if (!isExplicitlyConfigured(conf, HDDS_CONTAINER_RATIS_ENABLED_KEY)) {
+      conf.setBoolean(HDDS_CONTAINER_RATIS_ENABLED_KEY, false);
+    }
     conf.setBoolean(HDDS_SCM_SAFEMODE_PIPELINE_CREATION, false);
     conf.setInt(HDDS_SCM_SAFEMODE_MIN_DATANODE, Math.max(1, config.getDatanodes()));
     conf.set(HddsConfigKeys.HDDS_SCM_WAIT_TIME_AFTER_SAFE_MODE_EXIT, "3s");
@@ -335,6 +346,20 @@ public final class LocalOzoneCluster implements LocalOzoneRuntime {
     }
     persistedPorts.store();
     return preparedConfiguration;
+  }
+
+  private static void setIfNotExplicitlyConfigured(OzoneConfiguration conf,
+      String key, String value) {
+    if (!isExplicitlyConfigured(conf, key)) {
+      conf.set(key, value);
+    }
+  }
+
+  private static boolean isExplicitlyConfigured(OzoneConfiguration conf,
+      String key) {
+    String[] sources = conf.getPropertySources(key);
+    return sources != null && Arrays.stream(sources)
+        .anyMatch(source -> !source.contains("ozone-default.xml"));
   }
 
   @Override

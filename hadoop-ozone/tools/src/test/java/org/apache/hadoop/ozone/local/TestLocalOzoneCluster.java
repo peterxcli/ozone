@@ -18,9 +18,12 @@
 package org.apache.hadoop.ozone.local;
 
 import static org.apache.hadoop.hdds.recon.ReconConfigKeys.OZONE_RECON_HTTP_ADDRESS_KEY;
+import static org.apache.hadoop.hdds.scm.ScmConfigKeys.HDDS_CONTAINER_RATIS_ENABLED_KEY;
 import static org.apache.hadoop.hdds.scm.ScmConfigKeys.OZONE_SCM_CLIENT_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_METADATA_DIRS;
+import static org.apache.hadoop.ozone.OzoneConfigKeys.OZONE_REPLICATION_TYPE;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_ADDRESS_KEY;
+import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY;
 import static org.apache.hadoop.ozone.recon.ReconServerConfigKeys.OZONE_RECON_DB_DIR;
 import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTPS_ADDRESS_KEY;
 import static org.apache.hadoop.ozone.s3.S3GatewayConfigKeys.OZONE_S3G_HTTP_ADDRESS_KEY;
@@ -34,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.apache.hadoop.hdds.client.ReplicationType;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -73,6 +77,44 @@ class TestLocalOzoneCluster {
       assertEquals(9862, prepared.getOmPort());
       assertEquals(9878, prepared.getS3gPort());
       assertEquals(9888, prepared.getReconPort());
+    }
+  }
+
+  @Test
+  void prepareConfigurationUsesStandaloneReplicationByDefault()
+      throws Exception {
+    LocalOzoneClusterConfig config = LocalOzoneClusterConfig.builder(
+            tempDir.resolve("local-ozone"))
+        .build();
+
+    try (LocalOzoneCluster cluster =
+             new LocalOzoneCluster(config, new OzoneConfiguration())) {
+      OzoneConfiguration conf = cluster.prepareConfiguration().getConfiguration();
+
+      assertFalse(conf.getBoolean(HDDS_CONTAINER_RATIS_ENABLED_KEY, true));
+      assertEquals(ReplicationType.STAND_ALONE.name(),
+          conf.get(OZONE_REPLICATION_TYPE));
+      assertEquals(ReplicationType.STAND_ALONE.name(),
+          conf.get(OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY));
+    }
+  }
+
+  @Test
+  void prepareConfigurationHonorsExplicitContainerRatis() throws Exception {
+    OzoneConfiguration seed = new OzoneConfiguration();
+    seed.setBoolean(HDDS_CONTAINER_RATIS_ENABLED_KEY, true);
+    LocalOzoneClusterConfig config = LocalOzoneClusterConfig.builder(
+            tempDir.resolve("local-ozone"))
+        .build();
+
+    try (LocalOzoneCluster cluster = new LocalOzoneCluster(config, seed)) {
+      OzoneConfiguration conf = cluster.prepareConfiguration().getConfiguration();
+
+      assertTrue(conf.getBoolean(HDDS_CONTAINER_RATIS_ENABLED_KEY, false));
+      assertEquals(ReplicationType.RATIS.name(),
+          conf.get(OZONE_REPLICATION_TYPE));
+      assertEquals(ReplicationType.RATIS.name(),
+          conf.get(OZONE_SERVER_DEFAULT_REPLICATION_TYPE_KEY));
     }
   }
 
