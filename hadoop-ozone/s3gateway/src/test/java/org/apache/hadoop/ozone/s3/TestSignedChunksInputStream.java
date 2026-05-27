@@ -19,6 +19,7 @@ package org.apache.hadoop.ozone.s3;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -226,6 +227,24 @@ public class TestSignedChunksInputStream {
       int readLength = IOUtils.read(is, bytes, 0, 20);
       assertEquals(15, readLength);
       assertEquals("1234567890abcde", new String(bytes, UTF_8).substring(0, 15));
+    }
+  }
+
+  @Test
+  void testInvalidSignatureMarker() throws IOException {
+    try (InputStream is = wrapContent("0a;not-signature=signature\r\n"
+        + "1234567890\r\n"
+        + "0;chunk-signature=signature\r\n")) {
+      assertThrows(IOException.class, () -> IOUtils.toString(is, UTF_8));
+    }
+  }
+
+  @Test
+  void testInvalidChunkLength() throws IOException {
+    try (InputStream is = wrapContent("zz;chunk-signature=signature\r\n"
+        + "1234567890\r\n"
+        + "0;chunk-signature=signature\r\n")) {
+      assertThrows(IOException.class, () -> IOUtils.toString(is, UTF_8));
     }
   }
 

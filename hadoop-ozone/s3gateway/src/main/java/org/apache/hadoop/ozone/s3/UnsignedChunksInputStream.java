@@ -17,8 +17,6 @@
 
 package org.apache.hadoop.ozone.s3;
 
-import static org.apache.hadoop.ozone.s3.util.S3Utils.eol;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Objects;
@@ -163,29 +161,45 @@ public class UnsignedChunksInputStream extends InputStream {
   }
 
   private int readContentLengthFromHeader() throws IOException {
-    int prev = -1;
-    int curr = 0;
-    StringBuilder buf = new StringBuilder();
+    int length = 0;
+    boolean hasLength = false;
 
     //read everything until the next \r\n
-    while (!eol(prev, curr) && curr != -1) {
-      int next = originalStream.read();
-      if (next != -1) {
-        buf.append((char) next);
+    while (true) {
+      int curr = originalStream.read();
+      if (curr == -1) {
+        return hasLength ? length : -1;
       }
-      prev = curr;
-      curr = next;
+      if (curr == '\r') {
+        int next = originalStream.read();
+        if (next == '\n') {
+          return hasLength ? length : -1;
+        }
+        throw new IOException("Invalid unsigned chunk length header");
+      }
+
+      int digit = hexDigit(curr);
+      if (digit < 0) {
+        throw new IOException("Invalid unsigned chunk length header");
+      }
+      if (length > (Integer.MAX_VALUE - digit) / 16) {
+        throw new IOException("Unsigned chunk length exceeds integer range");
+      }
+      length = (length << 4) + digit;
+      hasLength = true;
     }
-    // Example of a single chunk data:
-    //  10000\r\n
-    //  <65536-bytes>\r\n
-    //
-    // 10000 will be read and decoded from base-16 representation to 65536, which is the size of
-    // the subsequent chunk payload.
-    String readString = buf.toString().trim();
-    if (readString.isEmpty()) {
-      return -1;
+  }
+
+  private static int hexDigit(int curr) {
+    if (curr >= '0' && curr <= '9') {
+      return curr - '0';
     }
-    return Integer.parseInt(readString, 16);
+    if (curr >= 'a' && curr <= 'f') {
+      return curr - 'a' + 10;
+    }
+    if (curr >= 'A' && curr <= 'F') {
+      return curr - 'A' + 10;
+    }
+    return -1;
   }
 }

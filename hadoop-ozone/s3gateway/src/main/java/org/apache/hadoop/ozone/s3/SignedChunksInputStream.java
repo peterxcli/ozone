@@ -21,9 +21,8 @@ import static org.apache.hadoop.ozone.s3.util.S3Utils.eol;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Input stream implementation to read body of a signed chunked upload. This should also work
@@ -71,8 +70,8 @@ import java.util.regex.Pattern;
  */
 public class SignedChunksInputStream extends InputStream {
 
-  private final Pattern signatureLinePattern =
-      Pattern.compile("([0-9A-Fa-f]+);chunk-signature=.*");
+  private static final byte[] CHUNK_SIGNATURE =
+      "chunk-signature=".getBytes(StandardCharsets.US_ASCII);
 
   private final InputStream originalStream;
 
@@ -169,34 +168,65 @@ public class SignedChunksInputStream extends InputStream {
   private int readContentLengthFromHeader() throws IOException {
     int prev = -1;
     int curr = 0;
-    StringBuilder buf = new StringBuilder();
+    int length = 0;
+    boolean hasLength = false;
 
-    //read everything until the next \r\n
     while (!eol(prev, curr) && curr != -1) {
-      int next = originalStream.read();
-      if (next != -1) {
-        buf.append((char) next);
+      curr = originalStream.read();
+      if (curr == -1) {
+        break;
       }
+
+      if (curr == ';') {
+        validateSignatureMarker();
+        skipLine(prev, curr);
+        return hasLength ? length : -1;
+      }
+
+      int digit = hexDigit(curr);
+      if (digit < 0) {
+        throw new IOException("Invalid signed chunk length header");
+      }
+      if (length > (Integer.MAX_VALUE - digit) / 16) {
+        throw new IOException("Signed chunk length exceeds integer range");
+      }
+      length = (length << 4) + digit;
+      hasLength = true;
       prev = curr;
-      curr = next;
     }
-    // Example of a single chunk data:
-    //  10000;chunk-signature=b474d8862b1487a5145d686f57f013e54db672cee1c953b3010fb58501ef5aa2\r\n
-    //  <65536-bytes>\r\n
-    //
-    // 10000 will be read and decoded from base-16 representation to 65536, which is the size of
-    // the subsequent chunk payload.
-    String signatureLine = buf.toString().trim();
-    if (signatureLine.isEmpty()) {
+
+    if (!hasLength) {
       return -1;
     }
+    throw new IOException("Invalid signed chunk header");
+  }
 
-    //parse the data length.
-    Matcher matcher = signatureLinePattern.matcher(signatureLine);
-    if (matcher.matches()) {
-      return Integer.parseInt(matcher.group(1), 16);
-    } else {
-      throw new IOException("Invalid signature line: " + signatureLine);
+  private void validateSignatureMarker() throws IOException {
+    for (byte expected : CHUNK_SIGNATURE) {
+      int actual = originalStream.read();
+      if (actual != (expected & 0xff)) {
+        throw new IOException("Invalid signed chunk signature marker");
+      }
     }
+  }
+
+  private void skipLine(int prev, int curr) throws IOException {
+    while (!eol(prev, curr) && curr != -1) {
+      prev = curr;
+      curr = originalStream.read();
+    }
+  }
+
+  private static int hexDigit(int curr) {
+    if (curr >= '0' && curr <= '9') {
+      return curr - '0';
+    }
+    if (curr >= 'a' && curr <= 'f') {
+      return curr - 'a' + 10;
+    }
+    if (curr >= 'A' && curr <= 'F') {
+      return curr - 'A' + 10;
+    }
+    return -1;
   }
 }
