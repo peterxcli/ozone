@@ -38,8 +38,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.core.MultivaluedMap;
@@ -164,7 +162,7 @@ public final class StringToSignProducer {
       boolean unsignedPayload
   ) throws OS3Exception {
 
-    Iterable<String> parts = split("/", uri);
+    Iterable<String> parts = splitUriPath(uri);
     List<String> encParts = new ArrayList<>();
     for (String p : parts) {
       encParts.add(urlEncode(p));
@@ -261,20 +259,16 @@ public final class StringToSignProducer {
   }
 
   /**
-   * Returns matching strings.
-   *
-   * @param regex Regular expression to split by
-   * @param whole The string to split
-   * @return pieces
+   * Split URI path segments while preserving empty leading, trailing and
+   * repeated slash segments for canonical request generation.
    */
-  private static Iterable<String> split(String regex, String whole) {
-    Pattern p = Pattern.compile(regex);
-    Matcher m = p.matcher(whole);
+  private static Iterable<String> splitUriPath(String whole) {
     List<String> result = new ArrayList<>();
     int pos = 0;
-    while (m.find()) {
-      result.add(whole.substring(pos, m.start()));
-      pos = m.end();
+    int next;
+    while ((next = whole.indexOf('/', pos)) >= 0) {
+      result.add(whole.substring(pos, next));
+      pos = next + 1;
     }
     result.add(whole.substring(pos));
     return result;
@@ -283,9 +277,9 @@ public final class StringToSignProducer {
   private static String urlEncode(String str) {
     try {
       return S3Utils.urlEncode(str)
-          .replaceAll("\\+", "%20")
-          .replaceAll("\\*", "%2A")
-          .replaceAll("%7E", "~");
+          .replace("+", "%20")
+          .replace("*", "%2A")
+          .replace("%7E", "~");
     } catch (UnsupportedEncodingException e) {
       throw new RuntimeException(e);
     }

@@ -116,6 +116,29 @@ public class TestStringToSignProducer {
         signatureBase, "String to sign is invalid");
   }
 
+  @Test
+  public void testCanonicalRequestPreservesPathSegments() throws Exception {
+    Map<String, String> headers = new HashMap<>();
+    headers.put("host", "0.0.0.0:9878");
+    headers.put("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
+    headers.put("x-amz-date", DATETIME);
+
+    String canonicalRequest = StringToSignProducer.buildCanonicalRequest(
+        "http", "PUT", "/bucket//a b+*~",
+        "host;x-amz-content-sha256;x-amz-date", headers, new HashMap<>(),
+        false);
+
+    assertEquals("PUT\n"
+        + "/bucket//a%20b%2B%2A~\n"
+        + "\n"
+        + "host:0.0.0.0:9878\n"
+        + "x-amz-content-sha256:UNSIGNED-PAYLOAD\n"
+        + "x-amz-date:" + DATETIME + "\n"
+        + "\n"
+        + "host;x-amz-content-sha256;x-amz-date\n"
+        + "UNSIGNED-PAYLOAD", canonicalRequest);
+  }
+
   private ContainerRequestContext setupContext(
       URI uri,
       String method,
