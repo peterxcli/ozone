@@ -93,6 +93,13 @@ public class OzoneClientConfig {
       tags = ConfigTag.CLIENT)
   private int dataStreamSyncSize = 0;
 
+  @Config(key = "ozone.client.datastream.close.putblock.compatibility",
+      defaultValue = "true",
+      description = "Send a PutBlock trailer when closing a data stream for "
+          + "compatibility with older datanodes.",
+      tags = ConfigTag.CLIENT)
+  private boolean dataStreamClosePutBlockCompatibility = true;
+
   @Config(key = "ozone.client.stream.buffer.increment",
       defaultValue = "0B",
       type = ConfigType.SIZE,
@@ -581,6 +588,16 @@ public class OzoneClientConfig {
 
   public int getDataStreamSyncSize() {
     return dataStreamSyncSize;
+  }
+
+  public boolean isDataStreamClosePutBlockCompatibility() {
+    return dataStreamClosePutBlockCompatibility;
+  }
+
+  public void setDataStreamClosePutBlockCompatibility(
+      boolean dataStreamClosePutBlockCompatibility) {
+    this.dataStreamClosePutBlockCompatibility =
+        dataStreamClosePutBlockCompatibility;
   }
 
   public void setHBaseEnhancementsAllowed(boolean isHBaseEnhancementsEnabled) {

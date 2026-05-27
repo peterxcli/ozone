@@ -133,6 +133,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
   private List<CompletableFuture<DataStreamReply>> futures = new ArrayList<>();
   private final long syncSize;
   private final long expectedDataLength;
+  private final boolean closeWithPutBlockCompatibility;
   private long syncPosition = 0;
   private StreamBuffer currentBuffer;
   private XceiverClientMetrics metrics;
@@ -161,6 +162,8 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
     this.expectedDataLength = expectedDataLength;
     this.isDatastreamPipelineMode = config.isDatastreamPipelineMode();
     this.syncSize = config.getDataStreamSyncSize();
+    this.closeWithPutBlockCompatibility =
+        config.isDataStreamClosePutBlockCompatibility();
     this.blockID = new AtomicReference<>(blockID);
     KeyValue keyValue =
         KeyValue.newBuilder().setKey("TYPE").setValue("KEY").build();
@@ -424,7 +427,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
     }
     waitFuturesComplete();
     final BlockData blockData = containerBlockData.build();
-    if (close) {
+    if (close && closeWithPutBlockCompatibility) {
       // HDDS-12007 changed datanodes to ignore the following PutBlock request.
       // However, clients still have to send it for maintaining compatibility.
       // Otherwise, new clients won't send a PutBlock.
@@ -444,6 +447,8 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
           }
         }
       });
+    } else if (close) {
+      dataStreamCloseReply = executeDataStreamClose(out);
     }
 
     try {
@@ -502,6 +507,14 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
     final ByteBuffer protoLength = getProtoLength(putBlock, max);
     RatisHelper.debug(putBlock, "putBlock", LOG);
     out.writeAsync(putBlock);
+    RatisHelper.debug(protoLength, "protoLength", LOG);
+    return out.writeAsync(protoLength, StandardWriteOption.CLOSE);
+  }
+
+  public static CompletableFuture<DataStreamReply> executeDataStreamClose(
+      DataStreamOutput out) {
+    final ByteBuffer protoLength = getProtoLength(ByteBuffer.allocate(0),
+        PUT_BLOCK_REQUEST_LENGTH_MAX);
     RatisHelper.debug(protoLength, "protoLength", LOG);
     return out.writeAsync(protoLength, StandardWriteOption.CLOSE);
   }

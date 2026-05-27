@@ -18,6 +18,7 @@
 package org.apache.hadoop.ozone.container.keyvalue.impl;
 
 import static org.apache.hadoop.hdds.scm.storage.BlockDataStreamOutput.PUT_BLOCK_REQUEST_LENGTH_MAX;
+import static org.apache.hadoop.hdds.scm.storage.BlockDataStreamOutput.executeDataStreamClose;
 import static org.apache.hadoop.hdds.scm.storage.BlockDataStreamOutput.executePutBlockClose;
 import static org.apache.hadoop.hdds.scm.storage.BlockDataStreamOutput.getProtoLength;
 import static org.apache.hadoop.ozone.container.keyvalue.impl.KeyValueStreamDataChannel.writeBuffers;
@@ -125,6 +126,11 @@ public class TestKeyValueStreamDataChannel {
     final int protoLength = KeyValueStreamDataChannel.readProtoLength(b.duplicate(), lengthIndex);
     final int protoIndex = lengthIndex - protoLength;
 
+    if (protoLength == 0) {
+      b.writerIndex(protoIndex);
+      return null;
+    }
+
     final ContainerCommandRequestProto proto;
     try {
       proto = readPutBlockRequest(b.slice(protoIndex, protoLength).nioBuffer());
@@ -179,6 +185,26 @@ public class TestKeyValueStreamDataChannel {
     wrap.retain();
     assertThrows(StorageContainerException.class, () -> writeChannel.write(wrap));
     wrap.release();
+  }
+
+  @Test
+  public void testCloseWithoutPutBlockTrailer() throws Exception {
+    final byte[] data = RandomUtils.secure().randomBytes(1024);
+
+    final Buffers buffers = new Buffers(PUT_BLOCK_REQUEST_LENGTH_MAX);
+    final Output out = new Output(buffers);
+    final DataStreamReply writeReply = out.writeAsync(ByteBuffer.wrap(data)).get();
+    assertReply(writeReply, data.length, null);
+
+    final DataStreamReply closeReply = executeDataStreamClose(out).get();
+    assertReply(closeReply, 0, null);
+
+    final ByteBuf outBuf = out.getOutBuf();
+    assertEquals(data.length, outBuf.readableBytes());
+    for (byte datum : data) {
+      assertEquals(datum, outBuf.readByte());
+    }
+    outBuf.release();
   }
 
   @Test
