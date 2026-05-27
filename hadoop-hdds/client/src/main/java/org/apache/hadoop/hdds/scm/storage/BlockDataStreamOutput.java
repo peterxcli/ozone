@@ -132,6 +132,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
   private CompletableFuture<DataStreamReply> dataStreamCloseReply;
   private List<CompletableFuture<DataStreamReply>> futures = new ArrayList<>();
   private final long syncSize;
+  private final long expectedDataLength;
   private long syncPosition = 0;
   private StreamBuffer currentBuffer;
   private XceiverClientMetrics metrics;
@@ -152,10 +153,12 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
       Pipeline pipeline,
       OzoneClientConfig config,
       Token<? extends TokenIdentifier> token,
+      long expectedDataLength,
       List<StreamBuffer> bufferList
   ) throws IOException {
     this.xceiverClientFactory = xceiverClientManager;
     this.config = config;
+    this.expectedDataLength = expectedDataLength;
     this.isDatastreamPipelineMode = config.isDatastreamPipelineMode();
     this.syncSize = config.getDataStreamSyncSize();
     this.blockID = new AtomicReference<>(blockID);
@@ -293,8 +296,12 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
 
   private void allocateNewBufferIfNeeded() {
     if (currentBuffer == null) {
+      final long remaining = expectedDataLength - writtenDataLength;
+      final int size = remaining > 0 ?
+          (int) Math.min(config.getDataStreamMinPacketSize(), remaining) :
+          config.getDataStreamMinPacketSize();
       currentBuffer =
-          StreamBuffer.allocate(config.getDataStreamMinPacketSize());
+          StreamBuffer.allocate(size);
     }
   }
 

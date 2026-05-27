@@ -97,7 +97,7 @@ public final class BlockDataStreamOutputEntry
     if (this.byteBufferStreamOutput == null) {
       this.byteBufferStreamOutput =
           new BlockDataStreamOutput(blockID, xceiverClientManager, pipeline,
-              config, token, bufferList);
+              config, token, length, bufferList);
     }
   }
 
@@ -293,5 +293,4 @@ public final class BlockDataStreamOutputEntry
     this.currentPosition = curPosition;
   }
 }
-
 
