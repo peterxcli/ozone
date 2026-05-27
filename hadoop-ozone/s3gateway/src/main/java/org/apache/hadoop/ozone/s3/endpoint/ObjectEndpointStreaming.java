@@ -206,25 +206,33 @@ final class ObjectEndpointStreaming {
                                           InputStream body, int bufferSize,
                                           long length)
       throws IOException {
-    final int readBufferSize = Math.toIntExact(Math.min(bufferSize, length));
-    final byte[] buffer = new byte[readBufferSize];
-    final ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-    long n = 0;
-    while (n < length) {
-      final int toRead = Math.toIntExact(Math.min(readBufferSize, length - n));
-      final int readLength = body.read(buffer, 0, toRead);
-      if (readLength == -1) {
-        break;
-      }
-      if (readLength == 0) {
-        continue;
-      }
-      byteBuffer.clear();
-      byteBuffer.limit(readLength);
-      streamOutput.write(byteBuffer, 0, readLength);
-      n += readLength;
+    if (length == 0) {
+      return 0;
     }
-    return n;
+    final int readBufferSize = Math.toIntExact(Math.min(bufferSize, length));
+    final byte[] buffer = S3StreamUtils.acquireBuffer(readBufferSize);
+    final ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+    final int maxReadSize = Math.min(buffer.length, readBufferSize);
+    try {
+      long n = 0;
+      while (n < length) {
+        final int toRead = Math.toIntExact(Math.min(maxReadSize, length - n));
+        final int readLength = body.read(buffer, 0, toRead);
+        if (readLength == -1) {
+          break;
+        }
+        if (readLength == 0) {
+          continue;
+        }
+        byteBuffer.clear();
+        byteBuffer.limit(readLength);
+        streamOutput.write(byteBuffer, 0, readLength);
+        n += readLength;
+      }
+      return n;
+    } finally {
+      S3StreamUtils.releaseBuffer(buffer);
+    }
   }
 
   @SuppressWarnings("checkstyle:ParameterNumber")

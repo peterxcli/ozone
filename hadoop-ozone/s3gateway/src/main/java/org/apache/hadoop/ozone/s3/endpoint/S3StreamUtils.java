@@ -78,7 +78,7 @@ final class S3StreamUtils {
     }
   }
 
-  private static byte[] acquireBuffer(int bufferSize) {
+  static byte[] acquireBuffer(int bufferSize) {
     byte[] buffer = COPY_BUFFERS.poll();
     if (buffer == null || buffer.length < bufferSize) {
       return new byte[bufferSize];
@@ -86,7 +86,7 @@ final class S3StreamUtils {
     return buffer;
   }
 
-  private static void releaseBuffer(byte[] buffer) {
+  static void releaseBuffer(byte[] buffer) {
     if (buffer.length <= MAX_RETAINED_BUFFER_SIZE) {
       COPY_BUFFERS.offer(buffer);
     }
