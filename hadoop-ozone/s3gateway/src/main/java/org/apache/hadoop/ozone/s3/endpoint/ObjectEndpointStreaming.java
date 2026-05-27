@@ -206,11 +206,12 @@ final class ObjectEndpointStreaming {
                                           InputStream body, int bufferSize,
                                           long length)
       throws IOException {
-    final byte[] buffer = new byte[bufferSize];
+    final int readBufferSize = Math.toIntExact(Math.min(bufferSize, length));
+    final byte[] buffer = new byte[readBufferSize];
     final ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
     long n = 0;
     while (n < length) {
-      final int toRead = Math.toIntExact(Math.min(bufferSize, length - n));
+      final int toRead = Math.toIntExact(Math.min(readBufferSize, length - n));
       final int readLength = body.read(buffer, 0, toRead);
       if (readLength == -1) {
         break;
