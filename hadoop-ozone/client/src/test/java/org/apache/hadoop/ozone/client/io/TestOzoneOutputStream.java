@@ -19,6 +19,7 @@ package org.apache.hadoop.ozone.client.io;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -26,8 +27,10 @@ import static org.mockito.Mockito.when;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import org.apache.hadoop.crypto.CryptoOutputStream;
+import org.apache.ratis.util.function.CheckedRunnable;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -43,6 +46,7 @@ public class TestOzoneOutputStream {
       implements KeyMetadataAware {
 
     private final Map<String, String> metadata;
+    private List<CheckedRunnable<IOException>> preCommits;
 
     FakeKeyOutputStream(Map<String, String> metadata) {
       super(); // VisibleForTesting constructor
@@ -62,6 +66,11 @@ public class TestOzoneOutputStream {
     @Override
     public void close() {
       // avoid real close logic touching internal state
+    }
+
+    @Override
+    public void setPreCommits(List<CheckedRunnable<IOException>> preCommits) {
+      this.preCommits = preCommits;
     }
   }
 
@@ -147,6 +156,22 @@ public class TestOzoneOutputStream {
 
     try (OzoneOutputStream ozone = new OzoneOutputStream(nonMeta, null)) {
       assertThrows(IllegalStateException.class, ozone::getMetadata);
+    }
+  }
+
+  @Test
+  public void testDataStreamOutputSetsPreCommitsOnClassicStream()
+      throws IOException {
+    FakeKeyOutputStream key = new FakeKeyOutputStream(Collections.emptyMap());
+    try (OzoneOutputStream ozone = new OzoneOutputStream(key, null);
+        OzoneDataStreamOutput dataStream =
+            new OzoneDataStreamOutput(ozone, ozone)) {
+      List<CheckedRunnable<IOException>> preCommits =
+          Collections.singletonList(() -> { });
+
+      dataStream.setPreCommits(preCommits);
+
+      assertSame(preCommits, key.preCommits);
     }
   }
 }

@@ -154,7 +154,7 @@ final class ObjectEndpointStreaming {
         preCommits.add(checkSha256Hook);
       }
 
-      streamOutput.getKeyDataStreamOutput().setPreCommits(preCommits);
+      streamOutput.setPreCommits(preCommits);
     }
     return Pair.of(md5Hash, writeLen);
   }
@@ -214,7 +214,7 @@ final class ObjectEndpointStreaming {
       if (readLength == -1) {
         break;
       }
-      streamOutput.write(ByteBuffer.wrap(buffer, 0, readLength));
+      streamOutput.write(ByteBuffer.wrap(buffer), 0, readLength);
       n += readLength;
     }
     return n;
@@ -240,7 +240,7 @@ final class ObjectEndpointStreaming {
           CheckedRunnable<IOException> checkContentMD5Hook = () -> {
             S3Utils.validateContentMD5(clientContentMD5, eTag, key);
           };
-          streamOutput.getKeyDataStreamOutput().setPreCommits(Collections.singletonList(checkContentMD5Hook));
+          streamOutput.setPreCommits(Collections.singletonList(checkContentMD5Hook));
         }
         ((KeyMetadataAware)streamOutput).getMetadata().put(OzoneConsts.ETAG, eTag);
         METRICS.incPutKeySuccessLength(putLength);

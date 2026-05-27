@@ -17,9 +17,11 @@
 
 package org.apache.hadoop.ozone.client.io;
 
+import jakarta.annotation.Nonnull;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -27,6 +29,7 @@ import org.apache.hadoop.crypto.CryptoOutputStream;
 import org.apache.hadoop.fs.Syncable;
 import org.apache.hadoop.hdds.scm.storage.ByteBufferStreamOutput;
 import org.apache.hadoop.ozone.om.helpers.OmMultipartCommitUploadPartInfo;
+import org.apache.ratis.util.function.CheckedRunnable;
 
 /**
  * OzoneDataStreamOutput is used to write data into Ozone.
@@ -131,6 +134,31 @@ public class OzoneDataStreamOutput extends ByteBufferOutputStream
       return ((KeyDataStreamOutput) byteBufferStreamOutput);
     }
     // Otherwise return null.
+    return null;
+  }
+
+  public void setPreCommits(
+      @Nonnull List<CheckedRunnable<IOException>> preCommits) {
+    KeyDataStreamOutput keyDataStreamOutput = getKeyDataStreamOutput();
+    if (keyDataStreamOutput != null) {
+      keyDataStreamOutput.setPreCommits(preCommits);
+      return;
+    }
+
+    KeyOutputStream keyOutputStream = getKeyOutputStream();
+    if (keyOutputStream != null) {
+      keyOutputStream.setPreCommits(preCommits);
+      return;
+    }
+
+    throw new IllegalStateException("Unsupported stream output: "
+        + byteBufferStreamOutput.getClass());
+  }
+
+  private KeyOutputStream getKeyOutputStream() {
+    if (byteBufferStreamOutput instanceof OzoneOutputStream) {
+      return ((OzoneOutputStream) byteBufferStreamOutput).getKeyOutputStream();
+    }
     return null;
   }
 
