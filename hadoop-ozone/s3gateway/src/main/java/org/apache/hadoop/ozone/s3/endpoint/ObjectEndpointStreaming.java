@@ -207,6 +207,7 @@ final class ObjectEndpointStreaming {
                                           long length)
       throws IOException {
     final byte[] buffer = new byte[bufferSize];
+    final ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
     long n = 0;
     while (n < length) {
       final int toRead = Math.toIntExact(Math.min(bufferSize, length - n));
@@ -214,7 +215,12 @@ final class ObjectEndpointStreaming {
       if (readLength == -1) {
         break;
       }
-      streamOutput.write(ByteBuffer.wrap(buffer), 0, readLength);
+      if (readLength == 0) {
+        continue;
+      }
+      byteBuffer.clear();
+      byteBuffer.limit(readLength);
+      streamOutput.write(byteBuffer, 0, readLength);
       n += readLength;
     }
     return n;
