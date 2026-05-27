@@ -19,6 +19,7 @@ package org.apache.hadoop.ozone.client.io;
 
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.Collections;
@@ -106,6 +107,16 @@ public final class BlockDataStreamOutputEntry
     checkStream();
     byteBufferStreamOutput.write(b, off, len);
     this.currentPosition += len;
+  }
+
+  int readFrom(InputStream in, int len) throws IOException {
+    checkStream();
+    int readLength = ((BlockDataStreamOutput) byteBufferStreamOutput)
+        .readFrom(in, len);
+    if (readLength > 0) {
+      this.currentPosition += readLength;
+    }
+    return readLength;
   }
 
   @Override
@@ -293,4 +304,3 @@ public final class BlockDataStreamOutputEntry
     this.currentPosition = curPosition;
   }
 }
-

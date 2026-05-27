@@ -21,6 +21,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import jakarta.annotation.Nonnull;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.Collections;
@@ -40,6 +41,7 @@ import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.scm.pipeline.PipelineID;
 import org.apache.hadoop.hdds.scm.storage.AbstractDataStreamOutput;
 import org.apache.hadoop.hdds.scm.storage.BlockDataStreamOutput;
+import org.apache.hadoop.hdds.scm.storage.StreamBuffer.InputStreamReadException;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfoGroup;
@@ -193,6 +195,54 @@ public class KeyDataStreamOutput extends AbstractDataStreamOutput
     writeOffset += len;
   }
 
+  public long writeFrom(InputStream in, int bufferSize, long length)
+      throws IOException {
+    checkNotClosed();
+    if (in == null) {
+      throw new NullPointerException();
+    }
+    if (bufferSize <= 0) {
+      throw new IllegalArgumentException("bufferSize <= 0: " + bufferSize);
+    }
+    if (length == 0) {
+      return 0;
+    }
+
+    long totalRead = 0;
+    while (totalRead < length) {
+      try {
+        BlockDataStreamOutputEntry current =
+            blockDataStreamOutputEntryPool.allocateBlockIfNeeded();
+        int expectedReadLen = Math.toIntExact(Math.min(
+            Math.min((long) bufferSize, length - totalRead),
+            current.getRemaining()));
+        if (expectedReadLen == 0) {
+          handleFlushOrClose(StreamAction.FULL);
+          continue;
+        }
+        int readLength =
+            readFromDataStreamOutput(current, in, expectedReadLen);
+        if (readLength == -1) {
+          break;
+        }
+        if (readLength == 0) {
+          continue;
+        }
+        if (current.getRemaining() <= 0) {
+          handleFlushOrClose(StreamAction.FULL);
+        }
+        totalRead += readLength;
+      } catch (IOException e) {
+        markStreamClosed();
+        throw e;
+      } catch (Exception e) {
+        markStreamClosed();
+        throw new IOException(e);
+      }
+    }
+    return totalRead;
+  }
+
   private void handleWrite(ByteBuffer b, int off, long len, boolean retry)
       throws IOException {
     while (len > 0) {
@@ -221,6 +271,30 @@ public class KeyDataStreamOutput extends AbstractDataStreamOutput
         markStreamClosed();
         throw new IOException(e);
       }
+    }
+  }
+
+  private int readFromDataStreamOutput(BlockDataStreamOutputEntry current,
+      InputStream in, int readLen) throws IOException {
+    long currentPos = current.getWrittenDataLength();
+    try {
+      int actualReadLen = current.readFrom(in, readLen);
+      if (actualReadLen > 0) {
+        offset += actualReadLen;
+        writeOffset += actualReadLen;
+      }
+      return actualReadLen;
+    } catch (InputStreamReadException e) {
+      throw e.getIOException();
+    } catch (IOException ioe) {
+      int dataRead = (int) (current.getWrittenDataLength() - currentPos);
+      if (dataRead > 0) {
+        offset += dataRead;
+        writeOffset += dataRead;
+      }
+      LOG.debug("readLen {}, total read {}", dataRead, readLen);
+      handleException(current, ioe);
+      return dataRead;
     }
   }
 

@@ -21,6 +21,7 @@ import static org.apache.hadoop.hdds.scm.storage.ContainerProtocolCalls.putBlock
 
 import com.google.common.base.Preconditions;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -276,6 +277,34 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
       len -= writeLen;
       doFlushIfNeeded();
     }
+  }
+
+  public int readFrom(InputStream in, int len) throws IOException {
+    checkOpen();
+    if (in == null) {
+      throw new NullPointerException();
+    }
+    if (len == 0) {
+      return 0;
+    }
+
+    int totalRead = 0;
+    while (len > 0) {
+      allocateNewBufferIfNeeded();
+      final int readLength = currentBuffer.readFrom(in, len);
+      if (readLength == -1) {
+        return totalRead == 0 ? -1 : totalRead;
+      }
+      if (readLength == 0) {
+        continue;
+      }
+      writeChunkIfNeeded();
+      writtenDataLength += readLength;
+      totalRead += readLength;
+      len -= readLength;
+      doFlushIfNeeded();
+    }
+    return totalRead;
   }
 
   private void writeChunkIfNeeded() throws IOException {

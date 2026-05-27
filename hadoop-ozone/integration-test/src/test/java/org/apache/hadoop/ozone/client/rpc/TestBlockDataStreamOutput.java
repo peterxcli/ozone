@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -217,6 +218,22 @@ public class TestBlockDataStreamOutput {
     // now close the stream, It will update the key length.
     key.close();
     validateData(client, keyName, data);
+  }
+
+  @ParameterizedTest
+  @MethodSource("dataLengthParameters")
+  public void testStreamWriteFromInputStream(int dataLength) throws Exception {
+    OzoneClientConfig config = newClientConfig(cluster.getConf(), false);
+    try (OzoneClient client = newClient(cluster.getConf(), config)) {
+      String keyName = getKeyName();
+      final byte[] data = ContainerTestHelper.generateData(dataLength, false);
+      try (OzoneDataStreamOutput key = createKey(client, keyName, dataLength)) {
+        long bytesWritten = key.writeFrom(
+            new ByteArrayInputStream(data), CHUNK_SIZE, dataLength);
+        assertEquals(dataLength, bytesWritten);
+      }
+      validateData(client, keyName, data);
+    }
   }
 
   private void testWriteWithFailure(OzoneClient client, int dataLength) throws Exception {

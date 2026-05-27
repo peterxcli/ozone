@@ -206,6 +206,9 @@ final class ObjectEndpointStreaming {
                                           InputStream body, int bufferSize,
                                           long length)
       throws IOException {
+    if (streamOutput.supportsDirectWriteFrom()) {
+      return streamOutput.writeFrom(body, bufferSize, length);
+    }
     if (length == 0) {
       return 0;
     }

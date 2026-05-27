@@ -19,6 +19,7 @@ package org.apache.hadoop.ozone.client.io;
 
 import jakarta.annotation.Nonnull;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -89,6 +90,45 @@ public class OzoneDataStreamOutput extends ByteBufferOutputStream
   @Override
   public void write(ByteBuffer b, int off, int len) throws IOException {
     byteBufferStreamOutput.write(b, off, len);
+  }
+
+  public long writeFrom(InputStream in, int bufferSize, long length)
+      throws IOException {
+    if (length == 0) {
+      return 0;
+    }
+    if (bufferSize <= 0) {
+      throw new IllegalArgumentException("bufferSize <= 0: " + bufferSize);
+    }
+    if (supportsDirectWriteFrom()) {
+      return ((KeyDataStreamOutput) byteBufferStreamOutput)
+          .writeFrom(in, bufferSize, length);
+    }
+
+    final byte[] buffer =
+        new byte[Math.toIntExact(Math.min(bufferSize, length))];
+    final ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+    long n = 0;
+    while (n < length) {
+      final int readLength = in.read(buffer, 0,
+          Math.toIntExact(Math.min(buffer.length, length - n)));
+      if (readLength == -1) {
+        break;
+      }
+      if (readLength == 0) {
+        continue;
+      }
+      byteBuffer.clear();
+      byteBuffer.limit(readLength);
+      write(byteBuffer, 0, readLength);
+      n += readLength;
+    }
+    return n;
+  }
+
+  public boolean supportsDirectWriteFrom() {
+    // Avoid bypassing wrappers such as encryption streams or test subclasses.
+    return byteBufferStreamOutput.getClass() == KeyDataStreamOutput.class;
   }
 
   @Override

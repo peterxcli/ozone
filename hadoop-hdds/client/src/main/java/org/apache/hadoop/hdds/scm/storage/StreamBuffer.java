@@ -17,6 +17,8 @@
 
 package org.apache.hadoop.hdds.scm.storage;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 
 /**
@@ -24,6 +26,18 @@ import java.nio.ByteBuffer;
  */
 public class StreamBuffer {
   private final ByteBuffer buffer;
+
+  public static final class InputStreamReadException extends IOException {
+    private static final long serialVersionUID = 1L;
+
+    private InputStreamReadException(IOException cause) {
+      super(cause);
+    }
+
+    public IOException getIOException() {
+      return (IOException) getCause();
+    }
+  }
 
   public StreamBuffer(ByteBuffer buffer) {
     this.buffer = buffer;
@@ -48,6 +62,28 @@ public class StreamBuffer {
 
   public void put(StreamBuffer sb) {
     buffer.put(sb.buffer);
+  }
+
+  public int readFrom(InputStream in, int length) throws IOException {
+    final int readLength = Math.min(length, remaining());
+    if (readLength == 0) {
+      return 0;
+    }
+    if (!buffer.hasArray()) {
+      throw new IOException("StreamBuffer does not have an accessible array");
+    }
+    final int position = buffer.position();
+    final int bytesRead;
+    try {
+      bytesRead = in.read(buffer.array(),
+          buffer.arrayOffset() + position, readLength);
+    } catch (IOException ioe) {
+      throw new InputStreamReadException(ioe);
+    }
+    if (bytesRead > 0) {
+      buffer.position(position + bytesRead);
+    }
+    return bytesRead;
   }
 
   public static StreamBuffer allocate(int size) {
