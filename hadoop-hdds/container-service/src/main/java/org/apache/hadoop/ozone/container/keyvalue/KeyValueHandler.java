@@ -2171,6 +2171,8 @@ public class KeyValueHandler extends Handler {
         streamObserver instanceof ReadBlockStreamObserver;
     final ReadBlockStreamObserver readBlockStreamObserver =
         rawReadBlockStream ? (ReadBlockStreamObserver) streamObserver : null;
+    final boolean retainRawReadBlockBuffer = rawReadBlockStream
+        && readBlockStreamObserver.retainsReadBlockDataBuffer();
     ByteBuffer buffer = ByteBuffer.allocate(responseDataSize);
     blockFile.position(adjustedOffset);
     long totalDataLength = 0;
@@ -2215,7 +2217,7 @@ public class KeyValueHandler extends Handler {
       }
       LOG.debug("server onNext response {}: dataLength={}, numChecksums={}",
           numResponses, dataLength, response.getReadBlock().getChecksumData().getChecksumsList().size());
-      if (rawReadBlockStream) {
+      if (retainRawReadBlockBuffer) {
         buffer = ByteBuffer.allocate(responseDataSize);
       } else {
         buffer.clear();

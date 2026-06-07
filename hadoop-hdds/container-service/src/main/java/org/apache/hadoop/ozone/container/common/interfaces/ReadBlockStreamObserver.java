@@ -31,8 +31,18 @@ public interface ReadBlockStreamObserver
   /**
    * Send one ReadBlock response.
    *
-   * Implementations may retain {@code data} after this method returns, so the
-   * caller must not modify or reuse the buffer.
+   * Implementations may retain {@code data} after this method returns when
+   * {@link #retainsReadBlockDataBuffer()} is true, so the caller must not
+   * modify or reuse the buffer in that case.
    */
   void onNextReadBlock(ContainerCommandResponseProto response, ByteBuffer data);
+
+  /**
+   * Whether this observer may retain the data buffer after
+   * {@link #onNextReadBlock(ContainerCommandResponseProto, ByteBuffer)}
+   * returns.
+   */
+  default boolean retainsReadBlockDataBuffer() {
+    return true;
+  }
 }

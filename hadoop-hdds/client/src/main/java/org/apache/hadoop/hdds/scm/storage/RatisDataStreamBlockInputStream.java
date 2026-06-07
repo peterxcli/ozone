@@ -94,6 +94,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   private BlockExtendedInputStream fallbackStream;
   private long position;
   private boolean streamDataSeen;
+  private boolean largeReadWindowEligible;
   private boolean closed;
 
   public RatisDataStreamBlockInputStream(BlockID blockID, long length,
@@ -148,6 +149,9 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   public synchronized int readFully(ByteBuffer targetBuf, boolean preRead)
       throws IOException {
     checkOpen();
+    if (!targetBuf.hasRemaining()) {
+      return 0;
+    }
     int read = 0;
     while (targetBuf.hasRemaining() && position < blockLength) {
       if (fallbackStream != null) {
@@ -200,6 +204,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
       fallbackStream.seek(pos);
       position = fallbackStream.getPos();
       discardBufferedData();
+      largeReadWindowEligible = false;
       return;
     }
 
@@ -207,6 +212,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
       closeStream();
       position = pos;
       discardBufferedData();
+      largeReadWindowEligible = false;
     }
   }
 
@@ -270,6 +276,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
             throw new EOFException("ReadBlock stream returned no data for "
                 + blockID + " at position " + position);
           }
+          largeReadWindowEligible = streamDataSeen;
           closeStream();
         } else {
           throw new IOException("Unexpected data stream reply type "
@@ -355,12 +362,8 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
 
   private DataStreamInput openStream(int length, boolean preRead)
       throws IOException {
-    final long requestedLength = Math.max(1L, (long) length);
-    final long wantedLength = preRead
-        ? Math.max(addWithSaturation(requestedLength, preReadSize),
-            readWindowSize)
-        : requestedLength;
-    final long readLength = Math.min(blockLength - position, wantedLength);
+    final long readLength = computeReadLength(blockLength, position, length,
+        preRead, largeReadWindowEligible, preReadSize, readWindowSize);
     final ContainerCommandRequestProto request =
         ContainerProtocolCalls.buildReadBlockCommandProto(blockID, position,
             readLength, responseDataSize, tokenRef.get(), pipelineRef.get());
@@ -380,9 +383,18 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
       Thread.currentThread().interrupt();
       throw new IOException("Interrupted Ratis read-only data stream request",
           e);
-    } catch (ExecutionException | TimeoutException e) {
+    } catch (ExecutionException e) {
       releaseClient(true);
-      throw new IOException("Failed Ratis read-only data stream request", e);
+      final Throwable cause = e.getCause();
+      if (cause instanceof IOException) {
+        throw (IOException) cause;
+      }
+      throw new IOException("Failed Ratis read-only data stream request",
+          cause != null ? cause : e);
+    } catch (TimeoutException e) {
+      releaseClient(true);
+      throw new IOException("Timed out waiting for Ratis read-only data "
+          + "stream reply", e);
     }
   }
 
@@ -527,6 +539,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
       final XceiverClientSpi client =
           xceiverClientFactory.acquireClientForReadData(pipelineRef.get());
       if (!(client instanceof XceiverClientRatis)) {
+        xceiverClientFactory.releaseClientForReadData(client, false);
         throw new IOException("Unexpected client class: "
             + client.getClass().getName() + ", " + pipelineRef.get());
       }
@@ -536,6 +549,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
 
   private synchronized void releaseClient(boolean invalidateClient) {
     discardBufferedData();
+    largeReadWindowEligible = false;
     if (xceiverClient != null) {
       closeStream();
       xceiverClientFactory.releaseClientForReadData(xceiverClient,
@@ -572,6 +586,26 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   private static long addWithSaturation(long left, long right) {
     final long result = left + right;
     return result < 0 ? Long.MAX_VALUE : result;
+  }
+
+  private static long computeReadLength(long blockLength, long position,
+      int length, boolean preRead, boolean largeReadWindowEligible,
+      long preReadSize, long readWindowSize) {
+    final long requestedLength = Math.max(1L, (long) length);
+    long wantedLength = requestedLength;
+    if (preRead && largeReadWindowEligible) {
+      wantedLength = Math.max(addWithSaturation(requestedLength, preReadSize),
+          readWindowSize);
+    }
+    return Math.min(blockLength - position, wantedLength);
+  }
+
+  @VisibleForTesting
+  static long computeReadLengthForTesting(long blockLength, long position,
+      int length, boolean preRead, boolean largeReadWindowEligible,
+      long preReadSize, long readWindowSize) {
+    return computeReadLength(blockLength, position, length, preRead,
+        largeReadWindowEligible, preReadSize, readWindowSize);
   }
 
   private void checkOpen() throws IOException {

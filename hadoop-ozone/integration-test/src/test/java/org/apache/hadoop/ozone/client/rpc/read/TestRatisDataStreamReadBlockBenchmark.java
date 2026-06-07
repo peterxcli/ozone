@@ -27,6 +27,7 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import org.apache.hadoop.hdds.StringUtils;
 import org.apache.hadoop.hdds.client.RatisReplicationConfig;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
@@ -49,7 +50,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 
 /**
- * Manual benchmark comparing Ozone's direct stream read path with
+ * Manual benchmark comparing Ozone's streaming ReadBlock path with
  * ReadBlock-over-Ratis-data-stream.
  */
 public class TestRatisDataStreamReadBlockBenchmark {
@@ -67,6 +68,12 @@ public class TestRatisDataStreamReadBlockBenchmark {
       "ozone.ratis.datastream.benchmark.warmup";
   private static final String RUNS_PROPERTY =
       "ozone.ratis.datastream.benchmark.runs";
+  private static final String RANDOM_BUFFER_SIZES_PROPERTY =
+      "ozone.ratis.datastream.benchmark.random.buffer.sizes";
+  private static final String RANDOM_READS_PROPERTY =
+      "ozone.ratis.datastream.benchmark.random.reads";
+  private static final String RANDOM_SEED_PROPERTY =
+      "ozone.ratis.datastream.benchmark.random.seed";
 
   private static final int BYTES_PER_CHECKSUM = 16 << 10;
   private static final SizeInBytes BYTES_PER_CHECKSUM_SIZE =
@@ -121,14 +128,14 @@ public class TestRatisDataStreamReadBlockBenchmark {
         final String expectedMd5 =
             createKey(testBucket.delegate(), keyName, keySize);
 
-        verifyRead("direct-stream-read", streamReadClient, volume, bucket,
+        verifyRead("readblock-stream-read", streamReadClient, volume, bucket,
             keyName, keySize, bufferSize, expectedMd5,
             StreamBlockInputStream.class);
         verifyRead("ratis-datastream-read", ratisStreamReadClient, volume,
             bucket, keyName, keySize, bufferSize, expectedMd5,
             RatisDataStreamBlockInputStream.class);
 
-        final double[] direct = new double[runs];
+        final double[] readBlockStream = new double[runs];
         final double[] ratis = new double[runs];
         for (int i = 0; i < warmups; i++) {
           measurePair(i, true, streamReadClient, ratisStreamReadClient, volume,
@@ -136,10 +143,10 @@ public class TestRatisDataStreamReadBlockBenchmark {
         }
         for (int i = 0; i < runs; i++) {
           measurePair(i, false, streamReadClient, ratisStreamReadClient, volume,
-              bucket, keyName, keySize, bufferSize, direct, ratis);
+              bucket, keyName, keySize, bufferSize, readBlockStream, ratis);
         }
 
-        printSummary("direct-stream-read", direct);
+        printSummary("readblock-stream-read", readBlockStream);
         printSummary("ratis-datastream-read", ratis);
       }
     }
@@ -152,10 +159,16 @@ public class TestRatisDataStreamReadBlockBenchmark {
         sizeListProperty(KEY_SIZES_PROPERTY, "256M,500M,1G");
     final List<SizeInBytes> bufferSizes =
         sizeListProperty(BUFFER_SIZES_PROPERTY, "32M,8M,1M,4k");
+    final List<SizeInBytes> randomBufferSizes =
+        sizeListProperty(RANDOM_BUFFER_SIZES_PROPERTY, "1M,4k");
+    final int randomReads = intProperty(RANDOM_READS_PROPERTY, 32);
+    final long randomSeed = longProperty(RANDOM_SEED_PROPERTY, 0x52425231L);
 
     System.out.printf("%nPR-6613-style ReadBlock trend benchmark: "
-            + "keySizes=%s, buffers=%s, bytesPerChecksum=%s%n",
-        keySizes, bufferSizes, BYTES_PER_CHECKSUM_SIZE);
+            + "keySizes=%s, sequentialBuffers=%s, randomBuffers=%s, "
+            + "randomReads=%d, randomSeed=%d, bytesPerChecksum=%s%n",
+        keySizes, bufferSizes, randomBufferSizes, randomReads, randomSeed,
+        BYTES_PER_CHECKSUM_SIZE);
 
     try (MiniOzoneCluster cluster =
              TestStreamRead.newCluster(BYTES_PER_CHECKSUM)) {
@@ -188,18 +201,52 @@ public class TestRatisDataStreamReadBlockBenchmark {
               keyName, keySize, BYTES_PER_CHECKSUM_SIZE);
 
           for (SizeInBytes bufferSize : bufferSizes) {
-            readStreamKey("direct-readStreamKey", streamReadClient, volume,
-                bucket, keyName, keySize, bufferSize, null,
-                StreamBlockInputStream.class);
-            readStreamKey("direct-readStreamKey", streamReadClient, volume,
-                bucket, keyName, keySize, bufferSize, expectedMd5,
-                StreamBlockInputStream.class);
-            readStreamKey("ratis-readStreamKey", ratisStreamReadClient,
-                volume, bucket, keyName, keySize, bufferSize, null,
-                RatisDataStreamBlockInputStream.class);
-            readStreamKey("ratis-readStreamKey", ratisStreamReadClient,
-                volume, bucket, keyName, keySize, bufferSize, expectedMd5,
-                RatisDataStreamBlockInputStream.class);
+            final ReadResult readBlockStreamNoMd5 =
+                readStreamKey("readblock-stream-readKey", streamReadClient,
+                    volume, bucket, keyName, keySize, bufferSize, null,
+                    StreamBlockInputStream.class);
+            final ReadResult readBlockStreamMd5 =
+                readStreamKey("readblock-stream-readKey", streamReadClient,
+                    volume, bucket, keyName, keySize, bufferSize, expectedMd5,
+                    StreamBlockInputStream.class);
+            final ReadResult ratisNoMd5 =
+                readStreamKey("ratis-readStreamKey", ratisStreamReadClient,
+                    volume, bucket, keyName, keySize, bufferSize, null,
+                    RatisDataStreamBlockInputStream.class);
+            final ReadResult ratisMd5 =
+                readStreamKey("ratis-readStreamKey", ratisStreamReadClient,
+                    volume, bucket, keyName, keySize, bufferSize, expectedMd5,
+                    RatisDataStreamBlockInputStream.class);
+            printBandwidthImprovement("sequential-no-md5-improvement",
+                keySize, bufferSize, readBlockStreamNoMd5, ratisNoMd5);
+            printBandwidthImprovement("sequential-md5-improvement",
+                keySize, bufferSize, readBlockStreamMd5, ratisMd5);
+          }
+
+          if (randomReads > 0) {
+            System.out.println("---------------------------------------------------------");
+            System.out.printf("%s random read workload with %d reads%n",
+                keyName, randomReads);
+            for (SizeInBytes bufferSize : randomBufferSizes) {
+              final int readSize = Math.toIntExact(
+                  Math.min(bufferSize.getSize(), keySize.getSize()));
+              final long[] offsets = randomOffsets(keySize.getSize(), readSize,
+                  randomReads, randomSeed ^ keySize.getSize()
+                      ^ bufferSize.getSize());
+              final ReadResult readBlockStreamRandom =
+                  randomReadStreamKey("readblock-randomReadKey",
+                      streamReadClient, volume, bucket, keyName, keySize,
+                      bufferSize, readSize, offsets,
+                      StreamBlockInputStream.class);
+              final ReadResult ratisRandom =
+                  randomReadStreamKey("ratis-randomReadKey",
+                      ratisStreamReadClient, volume, bucket, keyName, keySize,
+                      bufferSize, readSize, offsets,
+                      RatisDataStreamBlockInputStream.class);
+              printRandomImprovement("random-read-improvement", keySize,
+                  bufferSize, readSize, offsets.length, readBlockStreamRandom,
+                  ratisRandom);
+            }
           }
         }
       }
@@ -235,12 +282,13 @@ public class TestRatisDataStreamReadBlockBenchmark {
   private static void measurePair(int index, boolean warmup,
       OzoneClient streamReadClient, OzoneClient ratisStreamReadClient,
       String volume, String bucket, String keyName, SizeInBytes keySize,
-      SizeInBytes bufferSize, double[] directResults, double[] ratisResults)
+      SizeInBytes bufferSize, double[] readBlockStreamResults,
+      double[] ratisResults)
       throws Exception {
     if (index % 2 == 0) {
-      measureAndStore("direct-stream-read", warmup, index, streamReadClient,
-          volume, bucket, keyName, keySize, bufferSize,
-          StreamBlockInputStream.class, directResults);
+      measureAndStore("readblock-stream-read", warmup, index,
+          streamReadClient, volume, bucket, keyName, keySize, bufferSize,
+          StreamBlockInputStream.class, readBlockStreamResults);
       measureAndStore("ratis-datastream-read", warmup, index,
           ratisStreamReadClient, volume, bucket, keyName, keySize, bufferSize,
           RatisDataStreamBlockInputStream.class, ratisResults);
@@ -248,9 +296,9 @@ public class TestRatisDataStreamReadBlockBenchmark {
       measureAndStore("ratis-datastream-read", warmup, index,
           ratisStreamReadClient, volume, bucket, keyName, keySize, bufferSize,
           RatisDataStreamBlockInputStream.class, ratisResults);
-      measureAndStore("direct-stream-read", warmup, index, streamReadClient,
-          volume, bucket, keyName, keySize, bufferSize,
-          StreamBlockInputStream.class, directResults);
+      measureAndStore("readblock-stream-read", warmup, index,
+          streamReadClient, volume, bucket, keyName, keySize, bufferSize,
+          StreamBlockInputStream.class, readBlockStreamResults);
     }
   }
 
@@ -337,7 +385,7 @@ public class TestRatisDataStreamReadBlockBenchmark {
   }
 
   @SuppressWarnings("checkstyle:ParameterNumber")
-  private static void readStreamKey(String name, OzoneClient client,
+  private static ReadResult readStreamKey(String name, OzoneClient client,
       String volume, String bucket, String keyName, SizeInBytes keySize,
       SizeInBytes bufferSize, String expectedMd5, Class<?> expectedStreamClass)
       throws Exception {
@@ -351,6 +399,7 @@ public class TestRatisDataStreamReadBlockBenchmark {
               + "keySize %8.2f MB, md5=%s)%n",
           name, result.mbps(), result.elapsedSeconds(), bufferSize,
           keySize.getSize() * 1.0 / (1 << 20), result.md5());
+      return result;
     }
   }
 
@@ -380,6 +429,95 @@ public class TestRatisDataStreamReadBlockBenchmark {
         computeMd5 ? StringUtils.bytes2Hex(md5.digest()) : null);
   }
 
+  @SuppressWarnings("checkstyle:ParameterNumber")
+  private static ReadResult randomReadStreamKey(String name, OzoneClient client,
+      String volume, String bucket, String keyName, SizeInBytes keySize,
+      SizeInBytes bufferSize, int readSize, long[] offsets,
+      Class<?> expectedStreamClass) throws Exception {
+    try (KeyInputStream in = getKeyInputStream(client, volume, bucket,
+        keyName)) {
+      assertStreamClass(name, in, expectedStreamClass);
+      final ReadResult result = readRandomKey(name, in, readSize, offsets);
+      System.out.printf("%24s: %8.2f MB/s (%7.3f s, buffer %s, "
+              + "keySize %8.2f MB, reads %d, total %8.2f MB)%n",
+          name, result.mbps(), result.elapsedSeconds(), bufferSize,
+          keySize.getSize() * 1.0 / (1 << 20), offsets.length,
+          readSize * offsets.length * 1.0 / (1 << 20));
+      return result;
+    }
+  }
+
+  private static void printBandwidthImprovement(String name,
+      SizeInBytes keySize, SizeInBytes bufferSize, ReadResult readBlockStream,
+      ReadResult ratis) {
+    System.out.printf("%24s: %6.2fx bandwidth (%8.2f -> %8.2f MB/s, "
+            + "buffer %s, keySize %8.2f MB)%n",
+        name, ratio(ratis.mbps(), readBlockStream.mbps()),
+        readBlockStream.mbps(), ratis.mbps(), bufferSize,
+        keySize.getSize() * 1.0 / (1 << 20));
+  }
+
+  private static void printRandomImprovement(String name, SizeInBytes keySize,
+      SizeInBytes bufferSize, int readSize, int reads,
+      ReadResult readBlockStream, ReadResult ratis) {
+    final double readBlockStreamIops = iops(reads, readBlockStream);
+    final double ratisIops = iops(reads, ratis);
+    System.out.printf("%24s: %6.2fx bandwidth, %6.2fx IOPS "
+            + "(%8.2f -> %8.2f MB/s, %8.2f -> %8.2f ops/s, read %s, "
+            + "buffer %s, keySize %8.2f MB)%n",
+        name, ratio(ratis.mbps(), readBlockStream.mbps()),
+        ratio(ratisIops, readBlockStreamIops), readBlockStream.mbps(),
+        ratis.mbps(), readBlockStreamIops, ratisIops,
+        SizeInBytes.valueOf(readSize), bufferSize,
+        keySize.getSize() * 1.0 / (1 << 20));
+  }
+
+  private static ReadResult readRandomKey(String name, KeyInputStream in,
+      int readSize, long[] offsets) throws Exception {
+    final byte[] buffer = new byte[readSize];
+    final long startTime = System.nanoTime();
+    long totalRead = 0;
+    for (long offset : offsets) {
+      in.seek(offset);
+      int remaining = readSize;
+      while (remaining > 0) {
+        final int position = readSize - remaining;
+        final int read = in.read(buffer, position, remaining);
+        assertTrue(read > 0, name + " read returned " + read
+            + " at offset " + offset + ", remaining " + remaining);
+        remaining -= read;
+        totalRead += read;
+      }
+    }
+    final long elapsedNanos = System.nanoTime() - startTime;
+    return new ReadResult(elapsedNanos, mbps(totalRead, elapsedNanos), null);
+  }
+
+  private static long[] randomOffsets(long keySize, int readSize, int reads,
+      long seed) {
+    final Random random = new Random(seed);
+    final long[] offsets = new long[reads];
+    final long maxStart = keySize - readSize;
+    final long slots = maxStart / BYTES_PER_CHECKSUM + 1;
+    for (int i = 0; i < offsets.length; i++) {
+      offsets[i] = nextLong(random, slots) * BYTES_PER_CHECKSUM;
+    }
+    return offsets;
+  }
+
+  private static long nextLong(Random random, long bound) {
+    if (bound <= 0) {
+      return 0;
+    }
+    long bits;
+    long value;
+    do {
+      bits = random.nextLong() >>> 1;
+      value = bits % bound;
+    } while (bits - value + (bound - 1) < 0L);
+    return value;
+  }
+
   private static void printSummary(String name, double[] values) {
     double min = Double.POSITIVE_INFINITY;
     double max = Double.NEGATIVE_INFINITY;
@@ -398,6 +536,14 @@ public class TestRatisDataStreamReadBlockBenchmark {
     return (bytes * 1.0 / (1 << 20)) / (elapsedNanos / 1_000_000_000.0);
   }
 
+  private static double iops(int operations, ReadResult result) {
+    return operations / result.elapsedSeconds();
+  }
+
+  private static double ratio(double numerator, double denominator) {
+    return denominator == 0 ? Double.NaN : numerator / denominator;
+  }
+
   private static SizeInBytes sizeProperty(String name, String defaultValue) {
     return SizeInBytes.valueOf(System.getProperty(name, defaultValue));
   }
@@ -413,6 +559,10 @@ public class TestRatisDataStreamReadBlockBenchmark {
 
   private static int intProperty(String name, int defaultValue) {
     return Math.max(0, Integer.getInteger(name, defaultValue));
+  }
+
+  private static long longProperty(String name, long defaultValue) {
+    return Long.getLong(name, defaultValue);
   }
 
   private static final class ReadResult {

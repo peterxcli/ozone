@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -75,6 +76,7 @@ public class TestRatisDataStreamReadBlock {
           final List<RatisDataStreamBlockInputStream> streams =
               assertRatisStreams(in);
           assertNoFallback(streams);
+          assertEquals(0, streams.get(0).read(ByteBuffer.allocate(0)));
           assertEquals(expectedMd5, readMd5(in));
           assertNoFallback(streams);
         }
