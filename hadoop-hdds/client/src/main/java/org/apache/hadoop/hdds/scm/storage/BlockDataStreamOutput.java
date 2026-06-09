@@ -402,8 +402,7 @@ public class BlockDataStreamOutput implements ByteBufferStreamOutput {
    * @param force true if no data was written since most recent putBlock and
    *            stream is being closed
    */
-  public void executePutBlock(boolean close,
-      boolean force) throws IOException {
+  public void executePutBlock(boolean close, boolean force) throws IOException {
     checkOpen();
     long flushPos = totalDataFlushedLength;
     final List<StreamBuffer> byteBufferList;
