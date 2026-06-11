@@ -220,6 +220,7 @@ public class RpcClient implements ClientProtocol {
   private final BlockInputStreamFactory blockInputStreamFactory;
   private final OzoneManagerVersion omVersion;
   private final MemoizedSupplier<ExecutorService> ecReconstructExecutor;
+  private final ContainerClientMetrics.Handle clientMetricsHandle;
   private final ContainerClientMetrics clientMetrics;
   private final MemoizedSupplier<ExecutorService> writeExecutor;
   private volatile OzoneFsServerDefaults serverDefaults;
@@ -328,7 +329,8 @@ public class RpcClient implements ClientProtocol {
     this.byteBufferPool = new BoundedElasticByteBufferPool(maxPoolSize);
     this.blockInputStreamFactory = BlockInputStreamFactoryImpl
         .getInstance(byteBufferPool, ecReconstructExecutor);
-    this.clientMetrics = ContainerClientMetrics.acquire();
+    this.clientMetricsHandle = ContainerClientMetrics.acquireHandle();
+    this.clientMetrics = clientMetricsHandle.metrics();
 
     this.serverDefaultsValidityPeriod = conf.getTimeDuration(
         OZONE_CLIENT_SERVER_DEFAULTS_VALIDITY_PERIOD_MS,
@@ -1957,7 +1959,7 @@ public class RpcClient implements ClientProtocol {
     IOUtils.cleanupWithLogger(LOG, ozoneManagerClient, xceiverClientManager);
     keyProviderCache.invalidateAll();
     keyProviderCache.cleanUp();
-    ContainerClientMetrics.release();
+    clientMetricsHandle.close();
   }
 
   @Deprecated

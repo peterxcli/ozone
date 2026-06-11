@@ -18,6 +18,7 @@
 package org.apache.hadoop.hdds.utils.db;
 
 import com.google.common.annotations.VisibleForTesting;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.annotation.Metric;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
@@ -31,6 +32,31 @@ public class RDBMetrics {
   private static final String SOURCE_NAME = RDBMetrics.class.getSimpleName();
 
   private static RDBMetrics instance;
+  @VisibleForTesting
+  static int referenceCount = 0;
+
+  /**
+   * Handle for one metrics acquisition.
+   */
+  public static final class Handle implements AutoCloseable {
+    private final RDBMetrics metrics;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    private Handle(RDBMetrics metrics) {
+      this.metrics = metrics;
+    }
+
+    public RDBMetrics metrics() {
+      return metrics;
+    }
+
+    @Override
+    public void close() {
+      if (closed.compareAndSet(false, true)) {
+        unRegister();
+      }
+    }
+  }
 
   private @Metric MutableCounterLong numDBKeyMayExistChecks;
   private @Metric MutableCounterLong numDBKeyMayExistMisses;
@@ -55,6 +81,15 @@ public class RDBMetrics {
         "Rocks DB Metrics",
         new RDBMetrics());
     return instance;
+  }
+
+  public static Handle acquireHandle() {
+    return new Handle(acquire());
+  }
+
+  private static synchronized RDBMetrics acquire() {
+    referenceCount++;
+    return create();
   }
 
   public long getNumDBKeyGets() {
@@ -124,9 +159,14 @@ public class RDBMetrics {
   }
 
   public static synchronized void unRegister() {
-    instance = null;
-    MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(SOURCE_NAME);
+    if (referenceCount > 0) {
+      referenceCount--;
+    }
+    if (referenceCount == 0 && instance != null) {
+      instance = null;
+      MetricsSystem ms = DefaultMetricsSystem.instance();
+      ms.unregisterSource(SOURCE_NAME);
+    }
   }
 
 }

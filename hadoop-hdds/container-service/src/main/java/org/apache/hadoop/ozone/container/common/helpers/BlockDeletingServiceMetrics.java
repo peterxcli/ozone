@@ -17,6 +17,8 @@
 
 package org.apache.hadoop.ozone.container.common.helpers;
 
+import com.google.common.annotations.VisibleForTesting;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.annotation.Metric;
 import org.apache.hadoop.metrics2.annotation.Metrics;
@@ -33,8 +35,33 @@ import org.apache.hadoop.ozone.container.common.impl.BlockDeletingService;
 public final class BlockDeletingServiceMetrics {
 
   private static BlockDeletingServiceMetrics instance;
+  @VisibleForTesting
+  static int referenceCount = 0;
   public static final String SOURCE_NAME =
       BlockDeletingService.class.getSimpleName();
+
+  /**
+   * Handle for one metrics acquisition.
+   */
+  public static final class Handle implements AutoCloseable {
+    private final BlockDeletingServiceMetrics metrics;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    private Handle(BlockDeletingServiceMetrics metrics) {
+      this.metrics = metrics;
+    }
+
+    public BlockDeletingServiceMetrics metrics() {
+      return metrics;
+    }
+
+    @Override
+    public void close() {
+      if (closed.compareAndSet(false, true)) {
+        unRegister();
+      }
+    }
+  }
 
   @Metric(about = "The number of successful delete blocks")
   private MutableCounterLong successCount;
@@ -97,13 +124,27 @@ public final class BlockDeletingServiceMetrics {
     return instance;
   }
 
+  public static Handle acquireHandle() {
+    return new Handle(acquire());
+  }
+
+  private static synchronized BlockDeletingServiceMetrics acquire() {
+    referenceCount++;
+    return create();
+  }
+
   /**
    * Unregister the metrics instance.
    */
   public static synchronized void unRegister() {
-    instance = null;
-    MetricsSystem ms = DefaultMetricsSystem.instance();
-    ms.unregisterSource(SOURCE_NAME);
+    if (referenceCount > 0) {
+      referenceCount--;
+    }
+    if (referenceCount == 0 && instance != null) {
+      instance = null;
+      MetricsSystem ms = DefaultMetricsSystem.instance();
+      ms.unregisterSource(SOURCE_NAME);
+    }
   }
 
   public void incrSuccessCount(long count) {

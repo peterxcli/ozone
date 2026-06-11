@@ -62,8 +62,7 @@ public class XceiverClientManager extends XceiverClientCreator {
 
   private final Cache<String, XceiverClientSpi> clientCache;
   private final CacheMetrics cacheMetrics;
-
-  private static XceiverClientMetrics metrics;
+  private final XceiverClientMetrics.Handle metricsHandle;
 
   /**
    * Creates a new XceiverClientManager for non secured ozone cluster.
@@ -103,6 +102,7 @@ public class XceiverClientManager extends XceiverClientCreator {
           }).build();
 
     cacheMetrics = CacheMetrics.create(clientCache, this);
+    metricsHandle = XceiverClientMetrics.acquireHandle();
   }
 
   @VisibleForTesting
@@ -218,27 +218,21 @@ public class XceiverClientManager extends XceiverClientCreator {
       LOG.debug("XceiverClient cache stats: {}", clientCache.stats());
     }
     cacheMetrics.unregister();
-
-    if (metrics != null) {
-      metrics.unRegister();
-    }
+    metricsHandle.close();
   }
 
   /**
    * Get xceiver client metric.
    */
   public static synchronized XceiverClientMetrics getXceiverClientMetrics() {
-    if (metrics == null) {
-      metrics = XceiverClientMetrics.create();
-    }
-
-    return metrics;
+    return XceiverClientMetrics.create();
   }
 
   /**
    * Reset xceiver client metric.
    */
   public static synchronized void resetXceiverClientMetrics() {
+    XceiverClientMetrics metrics = XceiverClientMetrics.getInstance();
     if (metrics != null) {
       metrics.reset();
     }

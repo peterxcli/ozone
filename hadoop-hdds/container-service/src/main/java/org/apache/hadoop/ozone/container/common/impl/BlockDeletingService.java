@@ -66,6 +66,7 @@ public class BlockDeletingService extends BackgroundService {
   private final ContainerDeletionChoosingPolicy containerDeletionPolicy;
   private final ConfigurationSource conf;
   private final DatanodeConfiguration dnConf;
+  private final BlockDeletingServiceMetrics.Handle metricsHandle;
   private final BlockDeletingServiceMetrics metrics;
 
   // Task priority is useful when a to-delete block has weight.
@@ -110,7 +111,8 @@ public class BlockDeletingService extends BackgroundService {
     }
     this.blockDeletingMaxLockHoldingTime =
         dnConf.getBlockDeletingMaxLockHoldingTime();
-    metrics = BlockDeletingServiceMetrics.create();
+    metricsHandle = BlockDeletingServiceMetrics.acquireHandle();
+    metrics = metricsHandle.metrics();
   }
 
   public void registerReconfigCallbacks(ReconfigurationHandler handler) {
@@ -143,6 +145,12 @@ public class BlockDeletingService extends BackgroundService {
       setServiceTimeoutInNanos(newTimeout);
       start();
     }
+  }
+
+  @Override
+  public synchronized void shutdown() {
+    super.shutdown();
+    metricsHandle.close();
   }
 
   /**

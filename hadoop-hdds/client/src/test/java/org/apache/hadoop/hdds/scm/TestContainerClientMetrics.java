@@ -19,6 +19,7 @@ package org.apache.hadoop.hdds.scm;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
@@ -27,6 +28,7 @@ import org.apache.hadoop.hdds.client.ReplicationConfig;
 import org.apache.hadoop.hdds.protocol.DatanodeID;
 import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.scm.pipeline.PipelineID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +37,8 @@ import org.junit.jupiter.api.Test;
  */
 public class TestContainerClientMetrics {
   @BeforeEach
-  public void setup() {
+  @AfterEach
+  public void resetMetrics() {
     while (ContainerClientMetrics.referenceCount > 0) {
       ContainerClientMetrics.release();
     }
@@ -101,6 +104,42 @@ public class TestContainerClientMetrics {
 
     ContainerClientMetrics.acquire();
     assertNotNull(ContainerClientMetrics.acquire());
+  }
+
+  @Test
+  public void testAcquireHandleReleasesOnlyOnce() {
+    ContainerClientMetrics.Handle handle =
+        ContainerClientMetrics.acquireHandle();
+
+    assertNotNull(handle.metrics());
+    assertEquals(1, ContainerClientMetrics.referenceCount);
+
+    handle.close();
+    assertEquals(0, ContainerClientMetrics.referenceCount);
+
+    handle.close();
+    assertEquals(0, ContainerClientMetrics.referenceCount);
+    assertThrows(IllegalStateException.class, ContainerClientMetrics::release);
+  }
+
+  @Test
+  public void testMultipleAcquireHandlesReleaseIndependently() {
+    ContainerClientMetrics.Handle handle1 =
+        ContainerClientMetrics.acquireHandle();
+    ContainerClientMetrics.Handle handle2 =
+        ContainerClientMetrics.acquireHandle();
+
+    assertSame(handle1.metrics(), handle2.metrics());
+    assertEquals(2, ContainerClientMetrics.referenceCount);
+
+    handle1.close();
+    assertEquals(1, ContainerClientMetrics.referenceCount);
+
+    handle1.close();
+    assertEquals(1, ContainerClientMetrics.referenceCount);
+
+    handle2.close();
+    assertEquals(0, ContainerClientMetrics.referenceCount);
   }
 
   private Pipeline createPipeline(PipelineID piplineId, DatanodeID leaderId) {
