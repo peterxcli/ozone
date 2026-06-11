@@ -19,6 +19,7 @@ package org.apache.hadoop.hdds.scm;
 
 import com.google.common.annotations.VisibleForTesting;
 import java.util.EnumMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.hdds.annotation.InterfaceAudience;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos;
@@ -43,6 +44,33 @@ import org.apache.hadoop.ozone.util.PerformanceMetrics;
 public class XceiverClientMetrics implements MetricsSource {
   public static final String SOURCE_NAME = XceiverClientMetrics.class
       .getSimpleName();
+
+  private static XceiverClientMetrics instance;
+  @VisibleForTesting
+  static int referenceCount = 0;
+
+  /**
+   * Handle for one metrics acquisition.
+   */
+  public static final class Handle implements AutoCloseable {
+    private final XceiverClientMetrics metrics;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    private Handle(XceiverClientMetrics metrics) {
+      this.metrics = metrics;
+    }
+
+    public XceiverClientMetrics metrics() {
+      return metrics;
+    }
+
+    @Override
+    public void close() {
+      if (closed.compareAndSet(false, true)) {
+        release();
+      }
+    }
+  }
 
   private @Metric MutableCounterLong pendingOps;
   private @Metric MutableCounterLong totalOps;
@@ -79,11 +107,36 @@ public class XceiverClientMetrics implements MetricsSource {
     }
   }
 
-  public static XceiverClientMetrics create() {
+  public static synchronized XceiverClientMetrics create() {
+    if (instance != null) {
+      return instance;
+    }
     DefaultMetricsSystem.initialize(SOURCE_NAME);
     MetricsSystem ms = DefaultMetricsSystem.instance();
-    return ms.register(SOURCE_NAME, "Storage Container Client Metrics",
+    instance = ms.register(SOURCE_NAME, "Storage Container Client Metrics",
         new XceiverClientMetrics());
+    return instance;
+  }
+
+  static synchronized XceiverClientMetrics getInstance() {
+    return instance;
+  }
+
+  public static synchronized Handle acquireHandle() {
+    XceiverClientMetrics metrics = create();
+    referenceCount++;
+    return new Handle(metrics);
+  }
+
+  static synchronized void release() {
+    if (referenceCount > 0) {
+      referenceCount--;
+    }
+    if (referenceCount == 0 && instance != null) {
+      XceiverClientMetrics metrics = instance;
+      instance = null;
+      metrics.unregisterSource();
+    }
   }
 
   public void incrPendingContainerOpsMetrics(ContainerProtos.Type type) {
@@ -131,6 +184,16 @@ public class XceiverClientMetrics implements MetricsSource {
   }
 
   public void unRegister() {
+    synchronized (XceiverClientMetrics.class) {
+      if (instance == this) {
+        instance = null;
+        referenceCount = 0;
+      }
+    }
+    unregisterSource();
+  }
+
+  private void unregisterSource() {
     IOUtils.closeQuietly(containerOpsLatency.values());
     MetricsSystem ms = DefaultMetricsSystem.instance();
     ms.unregisterSource(SOURCE_NAME);

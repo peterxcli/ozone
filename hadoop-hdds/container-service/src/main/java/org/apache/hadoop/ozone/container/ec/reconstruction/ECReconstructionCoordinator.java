@@ -110,6 +110,7 @@ public class ECReconstructionCoordinator implements Closeable {
   private final MemoizedSupplier<ExecutorService> ecReconstructWriteExecutor;
   private final BlockInputStreamFactory blockInputStreamFactory;
   private final TokenHelper tokenHelper;
+  private final ContainerClientMetrics.Handle clientMetricsHandle;
   private final ContainerClientMetrics clientMetrics;
   private final ECReconstructionMetrics metrics;
   private final StateContext context;
@@ -137,7 +138,8 @@ public class ECReconstructionCoordinator implements Closeable {
     this.blockInputStreamFactory = BlockInputStreamFactoryImpl
         .getInstance(byteBufferPool, () -> ecReconstructReadExecutor);
     tokenHelper = new TokenHelper(new SecurityConfig(conf), secretKeyClient);
-    this.clientMetrics = ContainerClientMetrics.acquire();
+    this.clientMetricsHandle = ContainerClientMetrics.acquireHandle();
+    this.clientMetrics = clientMetricsHandle.metrics();
     this.metrics = metrics;
   }
 
@@ -449,13 +451,20 @@ public class ECReconstructionCoordinator implements Closeable {
 
   @Override
   public void close() throws IOException {
-    if (containerOperationClient != null) {
-      containerOperationClient.close();
+    try {
+      if (containerOperationClient != null) {
+        containerOperationClient.close();
+      }
+    } finally {
+      try {
+        if (ecReconstructWriteExecutor.isInitialized()) {
+          ecReconstructWriteExecutor.get().shutdownNow();
+        }
+        ecReconstructReadExecutor.shutdownNow();
+      } finally {
+        clientMetricsHandle.close();
+      }
     }
-    if (ecReconstructWriteExecutor.isInitialized()) {
-      ecReconstructWriteExecutor.get().shutdownNow();
-    }
-    ecReconstructReadExecutor.shutdownNow();
   }
 
   private Pipeline rebuildInputPipeline(ECReplicationConfig repConfig,

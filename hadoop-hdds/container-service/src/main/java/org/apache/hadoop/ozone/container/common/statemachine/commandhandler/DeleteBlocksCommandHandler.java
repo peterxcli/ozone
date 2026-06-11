@@ -91,6 +91,7 @@ public class DeleteBlocksCommandHandler implements CommandHandler {
   private final LinkedBlockingQueue<DeleteCmdInfo> deleteCommandQueues;
   private final Daemon handlerThread;
   private final OzoneContainer ozoneContainer;
+  private final BlockDeletingServiceMetrics.Handle blockDeleteMetricsHandle;
   private final BlockDeletingServiceMetrics blockDeleteMetrics;
   private final long tryLockTimeoutMs;
   private final Map<String, SchemaHandler> schemaHandlers;
@@ -102,7 +103,8 @@ public class DeleteBlocksCommandHandler implements CommandHandler {
     this.ozoneContainer = container;
     this.containerSet = container.getContainerSet();
     this.conf = conf;
-    this.blockDeleteMetrics = BlockDeletingServiceMetrics.create();
+    this.blockDeleteMetricsHandle = BlockDeletingServiceMetrics.acquireHandle();
+    this.blockDeleteMetrics = blockDeleteMetricsHandle.metrics();
     this.tryLockTimeoutMs = dnConf.getBlockDeleteMaxLockWaitTimeoutMs();
     schemaHandlers = new HashMap<>();
     schemaHandlers.put(SCHEMA_V1, this::markBlocksForDeletionSchemaV1);
@@ -742,6 +744,7 @@ public class DeleteBlocksCommandHandler implements CommandHandler {
         Thread.currentThread().interrupt();
       }
     }
+    blockDeleteMetricsHandle.close();
   }
 
   private interface DeletionMarker {

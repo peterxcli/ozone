@@ -77,13 +77,17 @@ class TestBlockOutputStreamCorrectness {
 
     final BufferPool bufferPool = new BufferPool(4 * 1024 * 1024, 32 / 4);
 
-    for (int block = 0; block < 10; block++) {
-      try (BlockOutputStream outputStream = createBlockOutputStream(bufferPool)) {
-        for (int i = 0; i < DATA_SIZE / writeSize; i++) {
-          if (writeSize > 1) {
-            outputStream.write(DATA, i * writeSize, writeSize);
-          } else {
-            outputStream.write(DATA[i]);
+    try (ContainerClientMetrics.Handle metrics =
+        ContainerClientMetrics.acquireHandle()) {
+      for (int block = 0; block < 10; block++) {
+        try (BlockOutputStream outputStream =
+            createBlockOutputStream(bufferPool, metrics.metrics())) {
+          for (int i = 0; i < DATA_SIZE / writeSize; i++) {
+            if (writeSize > 1) {
+              outputStream.write(DATA, i * writeSize, writeSize);
+            } else {
+              outputStream.write(DATA[i]);
+            }
           }
         }
       }
@@ -125,8 +129,11 @@ class TestBlockOutputStreamCorrectness {
     should not throw an exception because of missing stripeChecksum.
      */
     BlockData[] blockData = createBlockDataWithoutStripeChecksum(blockID, replicationConfig);
-    try (ECBlockOutputStream ecBlockOutputStream = createECBlockOutputStream(config, replicationConfig, blockID,
-        pipeline)) {
+    try (ContainerClientMetrics.Handle metrics =
+        ContainerClientMetrics.acquireHandle();
+         ECBlockOutputStream ecBlockOutputStream =
+             createECBlockOutputStream(config, replicationConfig, blockID,
+                 pipeline, metrics.metrics())) {
       Assertions.assertDoesNotThrow(() -> ecBlockOutputStream.executePutBlock(true, true, locationInfo.getLength(),
           blockData));
     }
@@ -150,7 +157,8 @@ class TestBlockOutputStreamCorrectness {
     return blockDataArray;
   }
 
-  private BlockOutputStream createBlockOutputStream(BufferPool bufferPool)
+  private BlockOutputStream createBlockOutputStream(BufferPool bufferPool,
+      ContainerClientMetrics clientMetrics)
       throws IOException {
 
     final Pipeline pipeline = MockPipeline.createRatisPipeline();
@@ -177,18 +185,18 @@ class TestBlockOutputStreamCorrectness {
         bufferPool,
         config,
         null,
-        ContainerClientMetrics.acquire(),
+        clientMetrics,
         streamBufferArgs,
         () -> newFixedThreadPool(10));
   }
 
   private ECBlockOutputStream createECBlockOutputStream(OzoneClientConfig clientConfig,
-      ECReplicationConfig repConfig, BlockID blockID, Pipeline pipeline) throws IOException {
+      ECReplicationConfig repConfig, BlockID blockID, Pipeline pipeline,
+      ContainerClientMetrics clientMetrics) throws IOException {
     final XceiverClientManager xcm = mock(XceiverClientManager.class);
     when(xcm.acquireClient(any()))
         .thenReturn(new MockXceiverClientSpi(pipeline));
 
-    ContainerClientMetrics clientMetrics = ContainerClientMetrics.acquire();
     StreamBufferArgs streamBufferArgs =
         StreamBufferArgs.getDefaultStreamBufferArgs(repConfig, clientConfig);
 

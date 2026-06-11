@@ -69,6 +69,7 @@ public class RDBStore implements DBStore {
   private final RDBCheckpointManager checkPointManager;
   private final String checkpointsParentDir;
   private final String snapshotsParentDir;
+  private final RDBMetrics.Handle rdbMetricsHandle;
   private final RDBMetrics rdbMetrics;
   private final RocksDBCheckpointDiffer rocksDBCheckpointDiffer;
 
@@ -175,7 +176,8 @@ public class RDBStore implements DBStore {
 
       //Initialize checkpoint manager
       checkPointManager = new RDBCheckpointManager(db, dbLocation.getName());
-      rdbMetrics = RDBMetrics.create();
+      rdbMetricsHandle = RDBMetrics.acquireHandle();
+      rdbMetrics = rdbMetricsHandle.metrics();
     } catch (IOException | RuntimeException e) {
       try {
         close();
@@ -245,7 +247,9 @@ public class RDBStore implements DBStore {
       metrics = null;
     }
 
-    RDBMetrics.unRegister();
+    if (rdbMetricsHandle != null) {
+      rdbMetricsHandle.close();
+    }
     IOUtils.close(LOG, checkPointManager);
     if (rocksDBCheckpointDiffer != null) {
       RocksDBCheckpointDifferHolder
