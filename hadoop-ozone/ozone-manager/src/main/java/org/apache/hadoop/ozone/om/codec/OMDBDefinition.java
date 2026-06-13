@@ -34,12 +34,15 @@ import org.apache.hadoop.ozone.om.helpers.OmDBTenantState;
 import org.apache.hadoop.ozone.om.helpers.OmDBUserPrincipalInfo;
 import org.apache.hadoop.ozone.om.helpers.OmDirectoryInfo;
 import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
+import org.apache.hadoop.ozone.om.helpers.OmKeyInfoCodec;
 import org.apache.hadoop.ozone.om.helpers.OmMultipartKeyInfo;
 import org.apache.hadoop.ozone.om.helpers.OmMultipartPartInfo;
 import org.apache.hadoop.ozone.om.helpers.OmMultipartPartKey;
+import org.apache.hadoop.ozone.om.helpers.OmOpenKeyInfoCodec;
 import org.apache.hadoop.ozone.om.helpers.OmPrefixInfo;
 import org.apache.hadoop.ozone.om.helpers.OmVolumeArgs;
 import org.apache.hadoop.ozone.om.helpers.RepeatedOmKeyInfo;
+import org.apache.hadoop.ozone.om.helpers.RepeatedOmKeyInfoCodec;
 import org.apache.hadoop.ozone.om.helpers.S3SecretValue;
 import org.apache.hadoop.ozone.om.helpers.SnapshotInfo;
 import org.apache.hadoop.ozone.om.service.SnapshotDeletingService;
@@ -208,21 +211,21 @@ public final class OMDBDefinition extends DBDefinition.WithMap {
   public static final DBColumnFamilyDefinition<String, OmKeyInfo> KEY_TABLE_DEF
       = new DBColumnFamilyDefinition<>(KEY_TABLE,
           StringCodec.get(),
-          OmKeyInfo.getKeyTableCodec());
+          OmKeyInfoCodec.get());
 
   public static final String DELETED_TABLE = "deletedTable";
   /** deletedTable: /volume/bucket/key :- RepeatedKeyInfo (excludes fields only used in openKeyTable). */
   public static final DBColumnFamilyDefinition<String, RepeatedOmKeyInfo> DELETED_TABLE_DEF
       = new DBColumnFamilyDefinition<>(DELETED_TABLE,
           StringCodec.get(),
-          RepeatedOmKeyInfo.getDeletedTableCodec(true));
+          RepeatedOmKeyInfoCodec.get(true));
 
   public static final String OPEN_KEY_TABLE = "openKeyTable";
   /** openKeyTable: /volume/bucket/key/id :- KeyInfo. */
   public static final DBColumnFamilyDefinition<String, OmKeyInfo> OPEN_KEY_TABLE_DEF
       = new DBColumnFamilyDefinition<>(OPEN_KEY_TABLE,
           StringCodec.get(),
-          OmKeyInfo.getOpenKeyTableCodec());
+          OmOpenKeyInfoCodec.get());
 
   public static final String MULTIPART_INFO_TABLE = "multipartInfoTable";
   /** multipartInfoTable: /volume/bucket/key/uploadId :- parts. */
@@ -245,14 +248,14 @@ public final class OMDBDefinition extends DBDefinition.WithMap {
   public static final DBColumnFamilyDefinition<String, OmKeyInfo> FILE_TABLE_DEF
       = new DBColumnFamilyDefinition<>(FILE_TABLE,
           StringCodec.get(),
-          OmKeyInfo.getKeyTableCodec());
+          OmKeyInfoCodec.get());
 
   public static final String OPEN_FILE_TABLE = "openFileTable";
   /** openFileTable: /volumeId/bucketId/parentId/fileName/id :- KeyInfo. */
   public static final DBColumnFamilyDefinition<String, OmKeyInfo> OPEN_FILE_TABLE_DEF
       = new DBColumnFamilyDefinition<>(OPEN_FILE_TABLE,
           StringCodec.get(),
-          OmKeyInfo.getOpenKeyTableCodec());
+          OmOpenKeyInfoCodec.get());
 
   public static final String DIRECTORY_TABLE = "directoryTable";
   /** directoryTable: /volumeId/bucketId/parentId/dirName :- DirInfo. */
@@ -269,7 +272,7 @@ public final class OMDBDefinition extends DBDefinition.WithMap {
   public static final DBColumnFamilyDefinition<String, OmKeyInfo> DELETED_DIR_TABLE_DEF
       = new DBColumnFamilyDefinition<>(DELETED_DIR_TABLE,
           StringCodec.get(),
-          OmKeyInfo.getKeyTableCodec());
+          OmKeyInfoCodec.get());
 
   //---------------------------------------------------------------------------
   // S3 Multi-Tenancy Tables

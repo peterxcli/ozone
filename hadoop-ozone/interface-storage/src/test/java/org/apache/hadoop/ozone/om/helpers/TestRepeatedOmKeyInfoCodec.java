@@ -37,12 +37,13 @@ import org.apache.hadoop.hdds.scm.HddsTestUtils;
 import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.utils.db.Codec;
 import org.apache.hadoop.hdds.utils.db.Proto2CodecTestBase;
+import org.apache.hadoop.ozone.ClientVersion;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.RepeatedKeyInfo;
 import org.apache.hadoop.util.Time;
 import org.junit.jupiter.api.Test;
 
 /**
- * Test {@link RepeatedOmKeyInfo#getOpenKeyTableCodec(boolean)}.
+ * Test {@link RepeatedOmOpenKeyInfoCodec#get(boolean)}.
  */
 public class TestRepeatedOmKeyInfoCodec
     extends Proto2CodecTestBase<RepeatedOmKeyInfo> {
@@ -53,7 +54,7 @@ public class TestRepeatedOmKeyInfoCodec
 
   @Override
   public Codec<RepeatedOmKeyInfo> getCodec() {
-    return RepeatedOmKeyInfo.getOpenKeyTableCodec(true);
+    return RepeatedOmOpenKeyInfoCodec.get(true);
   }
 
   private OmKeyInfo getKeyInfo(int chunkNum) {
@@ -96,7 +97,7 @@ public class TestRepeatedOmKeyInfoCodec
   }
 
   public void testWithoutPipeline(int chunkNum) throws IOException {
-    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmKeyInfo.getOpenKeyTableCodec(true);
+    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmOpenKeyInfoCodec.get(true);
     OmKeyInfo originKey = getKeyInfo(chunkNum);
     long bucketId = Time.now();
     RepeatedOmKeyInfo repeatedOmKeyInfo = new RepeatedOmKeyInfo(originKey, bucketId);
@@ -110,9 +111,9 @@ public class TestRepeatedOmKeyInfoCodec
 
   public void testCompatibility(int chunkNum) throws IOException {
     final Codec<RepeatedOmKeyInfo> codecWithoutPipeline
-        = RepeatedOmKeyInfo.getOpenKeyTableCodec(true);
+        = RepeatedOmOpenKeyInfoCodec.get(true);
     final Codec<RepeatedOmKeyInfo> codecWithPipeline
-        = RepeatedOmKeyInfo.getOpenKeyTableCodec(false);
+        = RepeatedOmOpenKeyInfoCodec.get(false);
     OmKeyInfo originKey = getKeyInfo(chunkNum);
     long bucketId = Time.now();
     RepeatedOmKeyInfo repeatedOmKeyInfo = new RepeatedOmKeyInfo(originKey, bucketId);
@@ -127,7 +128,7 @@ public class TestRepeatedOmKeyInfoCodec
     final OmKeyInfo key = getKeyInfo(1);
     long bucketId = Time.now();
     final RepeatedOmKeyInfo subject = new RepeatedOmKeyInfo(key, bucketId);
-    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmKeyInfo.getOpenKeyTableCodec(true);
+    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmOpenKeyInfoCodec.get(true);
     final AtomicBoolean failed = new AtomicBoolean();
     ThreadFactory threadFactory = new ThreadFactoryBuilder().setDaemon(true)
         .build();
@@ -186,7 +187,7 @@ public class TestRepeatedOmKeyInfoCodec
 
   @Test
   void testRegularCodecIncludesOpenKeyFields() throws IOException {
-    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmKeyInfo.getOpenKeyTableCodec(true);
+    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmOpenKeyInfoCodec.get(true);
     OmKeyInfo keyWithFields = getKeyInfoWithOpenKeyFields(1);
     long bucketId = Time.now();
     RepeatedOmKeyInfo repeatedOmKeyInfo = new RepeatedOmKeyInfo(keyWithFields, bucketId);
@@ -199,8 +200,19 @@ public class TestRepeatedOmKeyInfoCodec
   }
 
   @Test
+  void testRepeatedOmKeyInfoProtobufExcludesOpenKeyFields() {
+    OmKeyInfo keyWithFields = getKeyInfoWithOpenKeyFields(1);
+    long bucketId = Time.now();
+    RepeatedOmKeyInfo repeatedOmKeyInfo = new RepeatedOmKeyInfo(keyWithFields, bucketId);
+
+    RepeatedKeyInfo proto = repeatedOmKeyInfo.getProto(true, ClientVersion.CURRENT_VERSION);
+
+    assertFalse(proto.getKeyInfo(0).hasExpectedDataGeneration());
+  }
+
+  @Test
   void testDeletedTableCodecExcludesOpenKeyFields() throws IOException {
-    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmKeyInfo.getDeletedTableCodec(true);
+    final Codec<RepeatedOmKeyInfo> codec = RepeatedOmKeyInfoCodec.get(true);
     OmKeyInfo keyWithFields = getKeyInfoWithOpenKeyFields(1);
     long bucketId = Time.now();
     RepeatedOmKeyInfo repeatedOmKeyInfo = new RepeatedOmKeyInfo(keyWithFields, bucketId);
@@ -218,8 +230,8 @@ public class TestRepeatedOmKeyInfoCodec
 
   @Test
   void testDeletedTableCodecCanReadRegularCodecData() throws IOException {
-    final Codec<RepeatedOmKeyInfo> regularCodec = RepeatedOmKeyInfo.getOpenKeyTableCodec(true);
-    final Codec<RepeatedOmKeyInfo> deletedTableCodec = RepeatedOmKeyInfo.getDeletedTableCodec(true);
+    final Codec<RepeatedOmKeyInfo> regularCodec = RepeatedOmOpenKeyInfoCodec.get(true);
+    final Codec<RepeatedOmKeyInfo> deletedTableCodec = RepeatedOmKeyInfoCodec.get(true);
 
     OmKeyInfo keyWithFields = getKeyInfoWithOpenKeyFields(1);
     long bucketId = Time.now();
@@ -234,8 +246,8 @@ public class TestRepeatedOmKeyInfoCodec
 
   @Test
   void testDeletedTableCodecProducesSmallerOutput() throws IOException {
-    final Codec<RepeatedOmKeyInfo> regularCodec = RepeatedOmKeyInfo.getOpenKeyTableCodec(true);
-    final Codec<RepeatedOmKeyInfo> deletedTableCodec = RepeatedOmKeyInfo.getDeletedTableCodec(true);
+    final Codec<RepeatedOmKeyInfo> regularCodec = RepeatedOmOpenKeyInfoCodec.get(true);
+    final Codec<RepeatedOmKeyInfo> deletedTableCodec = RepeatedOmKeyInfoCodec.get(true);
 
     OmKeyInfo keyWithFields = getKeyInfoWithOpenKeyFields(1);
     long bucketId = Time.now();
