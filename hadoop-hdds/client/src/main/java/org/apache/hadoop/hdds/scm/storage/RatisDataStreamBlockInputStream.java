@@ -69,9 +69,8 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   private static final Logger LOG =
       LoggerFactory.getLogger(RatisDataStreamBlockInputStream.class);
   private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
-  private static final int RATIS_READ_BLOCK_STREAM_MAGIC = 0x52425231; // RBR1
   private static final int RATIS_READ_BLOCK_STREAM_HEADER_BYTES =
-      Integer.BYTES + Integer.BYTES;
+      Integer.BYTES;
 
   private final BlockID blockID;
   private final long blockLength;
@@ -468,56 +467,52 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
 
   private ReadBlockData parseReadBlockData(ByteBuf buf, boolean retainReply)
       throws InvalidProtocolBufferException {
-    if (buf.readableBytes() >= RATIS_READ_BLOCK_STREAM_HEADER_BYTES
-        && buf.getInt(buf.readerIndex()) == RATIS_READ_BLOCK_STREAM_MAGIC) {
-      final int metadataLength = buf.getInt(buf.readerIndex() + Integer.BYTES);
-      if (metadataLength < 0
-          || metadataLength > buf.readableBytes()
-              - RATIS_READ_BLOCK_STREAM_HEADER_BYTES) {
-        throw new InvalidProtocolBufferException(
-            "Invalid Ratis ReadBlock metadata length " + metadataLength);
-      }
-      final int metadataOffset =
-          buf.readerIndex() + RATIS_READ_BLOCK_STREAM_HEADER_BYTES;
-      final int dataOffset = metadataOffset + metadataLength;
-      final int dataLength =
-          buf.readerIndex() + buf.readableBytes() - dataOffset;
-      final ContainerCommandResponseProto response =
-          ContainerCommandResponseProto.parseFrom(
-              buf.slice(metadataOffset, metadataLength).nioBuffer());
-      final ByteBuffer data =
-          buf.slice(dataOffset, dataLength).nioBuffer();
-      return new ReadBlockData(response, data, retainReply);
+    if (buf.readableBytes() < RATIS_READ_BLOCK_STREAM_HEADER_BYTES) {
+      throw new InvalidProtocolBufferException(
+          "Missing Ratis ReadBlock metadata length");
     }
-    return new ReadBlockData(
-        ContainerCommandResponseProto.parseFrom(buf.nioBuffer()), null, false);
+    final int metadataLength = buf.getInt(buf.readerIndex());
+    if (metadataLength < 0
+        || metadataLength > buf.readableBytes()
+            - RATIS_READ_BLOCK_STREAM_HEADER_BYTES) {
+      throw new InvalidProtocolBufferException(
+          "Invalid Ratis ReadBlock metadata length " + metadataLength);
+    }
+    final int metadataOffset =
+        buf.readerIndex() + RATIS_READ_BLOCK_STREAM_HEADER_BYTES;
+    final int dataOffset = metadataOffset + metadataLength;
+    final int dataLength =
+        buf.readerIndex() + buf.readableBytes() - dataOffset;
+    final ContainerCommandResponseProto response =
+        ContainerCommandResponseProto.parseFrom(
+            buf.slice(metadataOffset, metadataLength).nioBuffer());
+    final ByteBuffer data =
+        buf.slice(dataOffset, dataLength).nioBuffer();
+    return new ReadBlockData(response, data, retainReply);
   }
 
   private ReadBlockData parseReadBlockData(ByteBuffer buffer,
       boolean retainReply) throws InvalidProtocolBufferException {
     final ByteBuffer duplicate = buffer.duplicate();
-    if (duplicate.remaining() >= RATIS_READ_BLOCK_STREAM_HEADER_BYTES
-        && duplicate.getInt(duplicate.position())
-            == RATIS_READ_BLOCK_STREAM_MAGIC) {
-      final int metadataLength =
-          duplicate.getInt(duplicate.position() + Integer.BYTES);
-      if (metadataLength < 0
-          || metadataLength > duplicate.remaining()
-              - RATIS_READ_BLOCK_STREAM_HEADER_BYTES) {
-        throw new InvalidProtocolBufferException(
-            "Invalid Ratis ReadBlock metadata length " + metadataLength);
-      }
-      duplicate.position(
-          duplicate.position() + RATIS_READ_BLOCK_STREAM_HEADER_BYTES);
-      final ByteBuffer metadata = duplicate.slice();
-      metadata.limit(metadataLength);
-      duplicate.position(duplicate.position() + metadataLength);
-      final ByteBuffer data = duplicate.slice();
-      return new ReadBlockData(
-          ContainerCommandResponseProto.parseFrom(metadata), data, retainReply);
+    if (duplicate.remaining() < RATIS_READ_BLOCK_STREAM_HEADER_BYTES) {
+      throw new InvalidProtocolBufferException(
+          "Missing Ratis ReadBlock metadata length");
     }
+    final int metadataLength = duplicate.getInt(duplicate.position());
+    if (metadataLength < 0
+        || metadataLength > duplicate.remaining()
+            - RATIS_READ_BLOCK_STREAM_HEADER_BYTES) {
+      throw new InvalidProtocolBufferException(
+          "Invalid Ratis ReadBlock metadata length " + metadataLength);
+    }
+    duplicate.position(
+        duplicate.position() + RATIS_READ_BLOCK_STREAM_HEADER_BYTES);
+    final ByteBuffer metadata = duplicate.slice();
+    metadata.limit(metadataLength);
+    duplicate.position(duplicate.position() + metadataLength);
+    final ByteBuffer data = duplicate.slice();
     return new ReadBlockData(
-        ContainerCommandResponseProto.parseFrom(buffer), null, false);
+        ContainerCommandResponseProto.parseFrom(metadata), data, retainReply);
   }
 
   private static final class ReadBlockData {

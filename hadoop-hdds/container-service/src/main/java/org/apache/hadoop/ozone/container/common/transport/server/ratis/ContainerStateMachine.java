@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -146,9 +147,8 @@ import org.slf4j.LoggerFactory;
  */
 public class ContainerStateMachine extends BaseStateMachine {
   static final Logger LOG = LoggerFactory.getLogger(ContainerStateMachine.class);
-  private static final int RATIS_READ_BLOCK_STREAM_MAGIC = 0x52425231; // RBR1
   private static final int RATIS_READ_BLOCK_STREAM_HEADER_BYTES =
-      Integer.BYTES + Integer.BYTES;
+      Integer.BYTES;
 
   private final SimpleStateMachineStorage storage = new SimpleStateMachineStorage();
   private final ContainerDispatcher dispatcher;
@@ -861,26 +861,25 @@ public class ContainerStateMachine extends BaseStateMachine {
   }
 
   @Override
-  public CompletableFuture<Message> streamReadOnly(
-      RaftClientRequest request, StateMachine.DataChannel stream) {
+  public void query(Message request, WritableByteChannel stream) {
     try {
       metrics.incNumQueryStateMachineOps();
       final ContainerCommandRequestProto requestProto =
-          message2ContainerCommandRequestProto(request.getMessage());
+          message2ContainerCommandRequestProto(request);
       if (requestProto.getCmdType() == Type.ReadBlock) {
-        return streamReadBlock(requestProto, stream);
+        streamReadBlock(requestProto, stream);
+      } else {
+        writeAndClose(stream, dispatchCommand(requestProto, null));
       }
-      return CompletableFuture.completedFuture(
-          dispatchCommand(requestProto, null)::toByteString);
     } catch (IOException e) {
       metrics.incNumQueryStateMachineFails();
-      return completeExceptionally(e);
+      throw new CompletionException(e);
     }
   }
 
-  private CompletableFuture<Message> streamReadBlock(
+  private void streamReadBlock(
       ContainerCommandRequestProto requestProto,
-      StateMachine.DataChannel stream) throws IOException {
+      WritableByteChannel stream) throws IOException {
     final AtomicReference<Throwable> error = new AtomicReference<>();
     final AtomicBoolean responseSeen = new AtomicBoolean(false);
     final ReadBlockStreamObserver observer =
@@ -939,42 +938,52 @@ public class ContainerStateMachine extends BaseStateMachine {
           + requestProto);
     }
 
-    return CompletableFuture.completedFuture(() -> ByteString.EMPTY);
+    stream.close();
   }
 
-  private static void writeReadBlockStreamResponse(
-      StateMachine.DataChannel stream, ContainerCommandResponseProto response,
-      ByteBuffer data) throws IOException {
-    final ByteBuffer[] buffers = encodeReadBlockStreamResponse(response, data);
-    long remaining = remaining(buffers);
-    while (remaining > 0) {
-      final int[] positions = positions(buffers);
-      final long written = stream.write(buffers, 0, buffers.length);
-      if (written < 0) {
-        throw new IOException("EOF reached while writing ReadBlock stream "
-            + "response");
-      }
-      if (written == 0) {
-        throw new IOException("Zero bytes written to ReadBlock stream "
-            + "response channel");
-      }
-      final long advanced = advanced(buffers, positions);
-      if (advanced == 0) {
-        if (written > remaining) {
-          throw new IOException("ReadBlock stream response write exceeded "
-              + "remaining bytes: written=" + written
-              + ", remaining=" + remaining);
-        }
-        advance(buffers, written);
-      } else if (advanced != written) {
-        throw new IOException("Inconsistent ReadBlock stream response write: "
-            + "written=" + written + ", advanced=" + advanced);
-      }
-      remaining -= written;
+  private static void writeAndClose(
+      WritableByteChannel stream, ContainerCommandResponseProto response)
+      throws IOException {
+    try {
+      writeFully(stream, response.toByteString().asReadOnlyByteBuffer());
+    } finally {
+      stream.close();
     }
   }
 
-  private static ByteBuffer[] encodeReadBlockStreamResponse(
+  private static void writeReadBlockStreamResponse(
+      WritableByteChannel stream, ContainerCommandResponseProto response,
+      ByteBuffer data) throws IOException {
+    writeFully(stream, encodeReadBlockStreamResponse(response, data));
+  }
+
+  private static void writeFully(WritableByteChannel stream, ByteBuffer buffer)
+      throws IOException {
+    while (buffer.hasRemaining()) {
+      final int position = buffer.position();
+      final int remaining = buffer.remaining();
+      final int written = stream.write(buffer);
+      if (written < 0) {
+        throw new IOException("EOF reached while writing ReadBlock stream response");
+      }
+      if (written == 0) {
+        throw new IOException("Zero bytes written to ReadBlock stream response channel");
+      }
+      final int advanced = buffer.position() - position;
+      if (advanced == 0) {
+        if (written > remaining) {
+          throw new IOException("ReadBlock stream response write exceeded remaining bytes: written="
+              + written + ", remaining=" + remaining);
+        }
+        buffer.position(position + written);
+      } else if (advanced != written) {
+        throw new IOException("Inconsistent ReadBlock stream response write: written="
+            + written + ", advanced=" + advanced);
+      }
+    }
+  }
+
+  private static ByteBuffer encodeReadBlockStreamResponse(
       ContainerCommandResponseProto response, ByteBuffer dataBuffer) {
     final ByteBuffer data;
     final ContainerCommandResponseProto metadata;
@@ -994,49 +1003,15 @@ public class ContainerStateMachine extends BaseStateMachine {
         metadata.toByteString().asReadOnlyByteBuffer();
     final ByteBuffer header =
         ByteBuffer.allocate(RATIS_READ_BLOCK_STREAM_HEADER_BYTES);
-    header.putInt(RATIS_READ_BLOCK_STREAM_MAGIC);
     header.putInt(metadataBuffer.remaining());
     header.flip();
-    return new ByteBuffer[] {header, metadataBuffer, data};
-  }
-
-  private static long remaining(ByteBuffer[] buffers) {
-    long remaining = 0;
-    for (ByteBuffer buffer : buffers) {
-      remaining += buffer.remaining();
-    }
-    return remaining;
-  }
-
-  private static int[] positions(ByteBuffer[] buffers) {
-    final int[] positions = new int[buffers.length];
-    for (int i = 0; i < buffers.length; i++) {
-      positions[i] = buffers[i].position();
-    }
-    return positions;
-  }
-
-  private static long advanced(ByteBuffer[] buffers, int[] positions) {
-    long advanced = 0;
-    for (int i = 0; i < buffers.length; i++) {
-      advanced += buffers[i].position() - positions[i];
-    }
-    return advanced;
-  }
-
-  private static void advance(ByteBuffer[] buffers, long bytes)
-      throws IOException {
-    long remaining = bytes;
-    for (ByteBuffer buffer : buffers) {
-      final int advanced = (int) Math.min(buffer.remaining(), remaining);
-      buffer.position(buffer.position() + advanced);
-      remaining -= advanced;
-      if (remaining == 0) {
-        return;
-      }
-    }
-    throw new IOException("ReadBlock stream response write exceeded remaining "
-        + "buffers: bytes=" + bytes);
+    final ByteBuffer frame = ByteBuffer.allocate(
+        header.remaining() + metadataBuffer.remaining() + data.remaining());
+    frame.put(header);
+    frame.put(metadataBuffer);
+    frame.put(data);
+    frame.flip();
+    return frame.asReadOnlyBuffer();
   }
 
   private ContainerCommandResponseProto queryReadBlock(
