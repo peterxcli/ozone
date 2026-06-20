@@ -150,6 +150,7 @@ import org.apache.hadoop.ozone.container.common.interfaces.BlockIterator;
 import org.apache.hadoop.ozone.container.common.interfaces.Container;
 import org.apache.hadoop.ozone.container.common.interfaces.DBHandle;
 import org.apache.hadoop.ozone.container.common.interfaces.Handler;
+import org.apache.hadoop.ozone.container.common.interfaces.ReadBlockStreamObserver;
 import org.apache.hadoop.ozone.container.common.interfaces.ScanResult;
 import org.apache.hadoop.ozone.container.common.interfaces.VolumeChoosingPolicy;
 import org.apache.hadoop.ozone.container.common.report.IncrementalReportSender;
@@ -2179,7 +2180,13 @@ public class KeyValueHandler extends Handler {
     final long offsetAlignment = readBlock.getOffset() % bytesPerChecksum;
     long adjustedOffset = readBlock.getOffset() - offsetAlignment;
 
-    final ByteBuffer buffer = ByteBuffer.allocate(responseDataSize);
+    final boolean rawReadBlockStream =
+        streamObserver instanceof ReadBlockStreamObserver;
+    final ReadBlockStreamObserver readBlockStreamObserver =
+        rawReadBlockStream ? (ReadBlockStreamObserver) streamObserver : null;
+    final boolean retainRawReadBlockBuffer = rawReadBlockStream
+        && readBlockStreamObserver.retainsReadBlockDataBuffer();
+    ByteBuffer buffer = ByteBuffer.allocate(responseDataSize);
     blockFile.position(adjustedOffset);
     long totalDataLength = 0;
     int numResponses = 0;
@@ -2207,13 +2214,27 @@ public class KeyValueHandler extends Handler {
           Checksum.verifyChecksum(buffer.duplicate(), checksumData, 0);
         }
       }
-      final ContainerCommandResponseProto response = getReadBlockResponse(
-          request, checksumData, buffer, adjustedOffset);
-      final int dataLength = response.getReadBlock().getData().size();
+      final ContainerCommandResponseProto response;
+      final int dataLength;
+      if (rawReadBlockStream) {
+        response = getReadBlockResponse(
+            request, checksumData, ByteString.EMPTY, adjustedOffset);
+        dataLength = readLength;
+        readBlockStreamObserver.onNextReadBlock(
+            response, buffer.asReadOnlyBuffer());
+      } else {
+        response = getReadBlockResponse(
+            request, checksumData, buffer, adjustedOffset);
+        dataLength = response.getReadBlock().getData().size();
+        streamObserver.onNext(response);
+      }
       LOG.debug("server onNext response {}: dataLength={}, numChecksums={}",
           numResponses, dataLength, response.getReadBlock().getChecksumData().getChecksumsList().size());
-      streamObserver.onNext(response);
-      buffer.clear();
+      if (retainRawReadBlockBuffer) {
+        buffer = ByteBuffer.allocate(responseDataSize);
+      } else {
+        buffer.clear();
+      }
 
       adjustedOffset += readLength;
       totalDataLength += dataLength;

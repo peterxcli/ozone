@@ -35,6 +35,7 @@ import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.scm.storage.BlockExtendedInputStream;
 import org.apache.hadoop.hdds.scm.storage.BlockInputStream;
 import org.apache.hadoop.hdds.scm.storage.BlockLocationInfo;
+import org.apache.hadoop.hdds.scm.storage.RatisDataStreamBlockInputStream;
 import org.apache.hadoop.hdds.scm.storage.StreamBlockInputStream;
 import org.apache.hadoop.hdds.security.token.OzoneBlockTokenIdentifier;
 import org.apache.hadoop.io.ByteBufferPool;
@@ -89,6 +90,11 @@ public class BlockInputStreamFactoryImpl implements BlockInputStreamFactory {
       return new ECBlockInputStreamProxy((ECReplicationConfig)repConfig,
           blockInfo, xceiverFactory, refreshFunction,
           ecBlockStreamFactory, config);
+    } else if (config.isRatisStreamReadBlock()
+        && repConfig.getReplicationType().equals(HddsProtos.ReplicationType.RATIS)) {
+      return new RatisDataStreamBlockInputStream(blockInfo.getBlockID(),
+          blockInfo.getLength(), pipeline, token, xceiverFactory,
+          refreshFunction, config);
     } else if (config.isStreamReadBlock() && allDataNodesSupportStreamBlock(pipeline)) {
       return new StreamBlockInputStream(blockInfo.getBlockID(), blockInfo.getLength(), pipeline, token, xceiverFactory,
           refreshFunction, config);
