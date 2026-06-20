@@ -642,7 +642,7 @@ public final class ScmInvokerCodeGenerator {
 
     final MD5Hash javaMd5 = MD5FileUtil.computeMd5ForFile(java);
     final MD5Hash tmpMd5 = MD5FileUtil.computeMd5ForFile(tmp);
-    if (Arrays.equals(javaMd5.getDigest(), tmpMd5.getDigest())) {
+    if (javaMd5.equals(tmpMd5)) {
       Files.delete(tmp.toPath());
       return null;
     }

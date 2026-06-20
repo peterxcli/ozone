@@ -59,6 +59,7 @@ import org.apache.ratis.protocol.exceptions.GroupMismatchException;
 import org.apache.ratis.thirdparty.com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.ratis.thirdparty.io.netty.buffer.ByteBuf;
 import org.apache.ratis.util.Preconditions;
+import org.apache.ratis.util.ReferenceCountedObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,7 +90,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   private XceiverClientRatis xceiverClient;
   private DataStreamInput streamInput;
   private ByteBuffer buffer = EMPTY_BUFFER;
-  private DataStreamReply retainedDataReply;
+  private ReferenceCountedObject<DataStreamReply> retainedDataReply;
   private BlockExtendedInputStream fallbackStream;
   private long position;
   private boolean streamDataSeen;
@@ -262,15 +263,16 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
           streamInput = openStream(length, preRead);
         }
 
-        final DataStreamReply reply = readReply();
+        final ReferenceCountedObject<DataStreamReply> ref = readReply();
+        final DataStreamReply reply = ref.get();
         if (reply.getType() == Type.STREAM_DATA) {
           streamDataSeen = true;
-          final ByteBuffer data = readDataReply(reply);
+          final ByteBuffer data = readDataReply(ref);
           if (data.hasRemaining()) {
             return data;
           }
         } else if (reply.getType() == Type.STREAM_HEADER) {
-          handleTerminalReply(reply);
+          handleTerminalReply(ref);
           if (!streamDataSeen && position < blockLength) {
             throw new EOFException("ReadBlock stream returned no data for "
                 + blockID + " at position " + position);
@@ -278,8 +280,12 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
           largeReadWindowEligible = streamDataSeen;
           closeStream();
         } else {
-          throw new IOException("Unexpected data stream reply type "
-              + reply.getType() + " for " + blockID);
+          try {
+            throw new IOException("Unexpected data stream reply type "
+                + reply.getType() + " for " + blockID);
+          } finally {
+            ref.release();
+          }
         }
       } catch (IOException e) {
         if (shouldFallbackToBlockInputStream(e)) {
@@ -374,7 +380,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
         .streamReadOnly(message.getContent().asReadOnlyByteBuffer());
   }
 
-  private DataStreamReply readReply() throws IOException {
+  private ReferenceCountedObject<DataStreamReply> readReply() throws IOException {
     try {
       return streamInput.readAsync().get(readTimeout.toMillis(),
           TimeUnit.MILLISECONDS);
@@ -397,7 +403,9 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
     }
   }
 
-  private ByteBuffer readDataReply(DataStreamReply reply) throws IOException {
+  private ByteBuffer readDataReply(ReferenceCountedObject<DataStreamReply> ref)
+      throws IOException {
+    final DataStreamReply reply = ref.get();
     boolean releaseReply = true;
     try {
       final ReadBlockData readBlockData = parseReadBlockData(reply);
@@ -424,26 +432,28 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
       dataBuffer.position(Math.toIntExact(
           Math.min(position - blockOffset, dataBuffer.limit())));
       if (readBlockData.retainReply && dataBuffer.hasRemaining()) {
-        retainedDataReply = reply;
+        retainedDataReply = ref;
         releaseReply = false;
       }
       return dataBuffer;
     } finally {
       if (releaseReply) {
-        reply.release();
+        ref.release();
       }
     }
   }
 
-  private void handleTerminalReply(DataStreamReply reply) throws IOException {
+  private void handleTerminalReply(ReferenceCountedObject<DataStreamReply> ref)
+      throws IOException {
     try {
-      final RaftClientReply raftReply = ClientProtoUtils.getRaftClientReply(reply);
+      final RaftClientReply raftReply =
+          ClientProtoUtils.getRaftClientReply(ref.get());
       if (!raftReply.isSuccess()) {
         throw new IOException("Failed Ratis read-only data stream request",
             raftReply.getException());
       }
     } finally {
-      reply.release();
+      ref.release();
     }
   }
 
