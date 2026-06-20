@@ -20,11 +20,7 @@ package org.apache.hadoop.ozone.om.helpers;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.hadoop.hdds.utils.db.Codec;
 import org.apache.hadoop.hdds.utils.db.CopyObject;
-import org.apache.hadoop.hdds.utils.db.DelegatedCodec;
-import org.apache.hadoop.hdds.utils.db.Proto2Codec;
-import org.apache.hadoop.ozone.ClientVersion;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.KeyInfo;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.RepeatedKeyInfo;
 
@@ -37,9 +33,6 @@ import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.Repeate
  * admin wants to confirm if a given key is deleted from deletedTable metadata.
  */
 public class RepeatedOmKeyInfo implements CopyObject<RepeatedOmKeyInfo> {
-  private static final Codec<RepeatedOmKeyInfo> CODEC_TRUE = newCodec(true);
-  private static final Codec<RepeatedOmKeyInfo> CODEC_FALSE = newCodec(false);
-
   private final List<OmKeyInfo> omKeyInfoList;
   /**
    * Represents the unique identifier for a bucket. This variable is used to
@@ -50,18 +43,6 @@ public class RepeatedOmKeyInfo implements CopyObject<RepeatedOmKeyInfo> {
    * associated with a bucket.
    */
   private final long bucketId;
-
-  private static Codec<RepeatedOmKeyInfo> newCodec(boolean ignorePipeline) {
-    return new DelegatedCodec<>(
-        Proto2Codec.get(RepeatedKeyInfo.getDefaultInstance()),
-        RepeatedOmKeyInfo::getFromProto,
-        k -> k.getProto(ignorePipeline, ClientVersion.CURRENT_VERSION),
-        RepeatedOmKeyInfo.class);
-  }
-
-  public static Codec<RepeatedOmKeyInfo> getCodec(boolean ignorePipeline) {
-    return ignorePipeline ? CODEC_TRUE : CODEC_FALSE;
-  }
 
   public RepeatedOmKeyInfo(long bucketId) {
     this.omKeyInfoList = new ArrayList<>();

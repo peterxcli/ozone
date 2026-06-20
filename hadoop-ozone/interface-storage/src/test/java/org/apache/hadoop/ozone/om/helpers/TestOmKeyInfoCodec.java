@@ -18,8 +18,10 @@
 package org.apache.hadoop.ozone.om.helpers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -35,11 +37,13 @@ import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.utils.db.Codec;
 import org.apache.hadoop.hdds.utils.db.Proto2CodecTestBase;
 import org.apache.hadoop.io.MD5Hash;
+import org.apache.hadoop.ozone.ClientVersion;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.KeyInfo;
 import org.apache.hadoop.util.Time;
 import org.junit.jupiter.api.Test;
 
 /**
- * Test {@link OmKeyInfo#getCodec()} .
+ * Test {@link OmOpenKeyInfoCodec#get()}.
  */
 public class TestOmKeyInfoCodec extends Proto2CodecTestBase<OmKeyInfo> {
   private static final String VOLUME = "hadoop";
@@ -51,7 +55,7 @@ public class TestOmKeyInfoCodec extends Proto2CodecTestBase<OmKeyInfo> {
 
   @Override
   public Codec<OmKeyInfo> getCodec() {
-    return OmKeyInfo.getCodec();
+    return OmOpenKeyInfoCodec.get();
   }
 
   private static FileChecksum createEmptyChecksum() {
@@ -92,6 +96,42 @@ public class TestOmKeyInfoCodec extends Proto2CodecTestBase<OmKeyInfo> {
         .build();
   }
 
+  /**
+   * Creates an OmKeyInfo with fields only used in openKeyTable set.
+   * The expectedDataGeneration field is only meaningful for keys in openKeyTable.
+   */
+  private OmKeyInfo getKeyInfoWithOpenKeyFields(int chunkNum) {
+    List<OmKeyLocationInfo> omKeyLocationInfoList = new ArrayList<>();
+    Pipeline pipeline = HddsTestUtils.getRandomPipeline();
+    for (int i = 0; i < chunkNum; i++) {
+      BlockID blockID = new BlockID(i, i);
+      OmKeyLocationInfo keyLocationInfo = new OmKeyLocationInfo.Builder()
+          .setBlockID(blockID)
+          .setPipeline(pipeline)
+          .build();
+      omKeyLocationInfoList.add(keyLocationInfo);
+    }
+    OmKeyLocationInfoGroup omKeyLocationInfoGroup = new
+        OmKeyLocationInfoGroup(0, omKeyLocationInfoList);
+
+    return new OmKeyInfo.Builder()
+        .setCreationTime(Time.now())
+        .setModificationTime(Time.now())
+        .setReplicationConfig(RatisReplicationConfig
+            .getInstance(HddsProtos.ReplicationFactor.THREE))
+        .setVolumeName(VOLUME)
+        .setBucketName(BUCKET)
+        .setKeyName(KEYNAME)
+        .setObjectID(Time.now())
+        .setUpdateID(Time.now())
+        .setDataSize(100)
+        .setOmKeyLocationInfos(
+            Collections.singletonList(omKeyLocationInfoGroup))
+        .setFileChecksum(checksum)
+        .setExpectedDataGeneration(12345L)
+        .build();
+  }
+
   @Test
   public void test() throws IOException {
     testOmKeyInfoCodecWithoutPipeline(1);
@@ -100,7 +140,7 @@ public class TestOmKeyInfoCodec extends Proto2CodecTestBase<OmKeyInfo> {
 
   public void testOmKeyInfoCodecWithoutPipeline(int chunkNum)
       throws IOException {
-    final Codec<OmKeyInfo> codec = OmKeyInfo.getCodec();
+    final Codec<OmKeyInfo> codec = OmOpenKeyInfoCodec.get();
     OmKeyInfo originKey = getKeyInfo(chunkNum);
     byte[] rawData = codec.toPersistedFormat(originKey);
     OmKeyInfo key = codec.fromPersistedFormat(rawData);
@@ -110,5 +150,103 @@ public class TestOmKeyInfoCodec extends Proto2CodecTestBase<OmKeyInfo> {
         .getPipeline());
     assertNotNull(key.getFileChecksum());
     assertEquals(key.getFileChecksum(), checksum);
+  }
+
+  @Test
+  public void testOpenKeyTableCodecIncludesOpenKeyFields() throws IOException {
+    final Codec<OmKeyInfo> openKeyCodec = OmOpenKeyInfoCodec.get();
+    OmKeyInfo originKey = getKeyInfoWithOpenKeyFields(1);
+
+    assertEquals(12345L, originKey.getExpectedDataGeneration());
+
+    byte[] rawData = openKeyCodec.toPersistedFormat(originKey);
+    OmKeyInfo deserializedKey = openKeyCodec.fromPersistedFormat(rawData);
+
+    assertEquals(12345L, deserializedKey.getExpectedDataGeneration());
+
+    KeyInfo keyInfo = KeyInfo.parseFrom(rawData);
+    assertTrue(keyInfo.hasExpectedDataGeneration(),
+        "openKeyTable codec should include expectedDataGeneration in proto");
+    assertEquals(12345L, keyInfo.getExpectedDataGeneration());
+  }
+
+  @Test
+  public void testOmKeyInfoProtobufExcludesOpenKeyFields() {
+    OmKeyInfo originKey = getKeyInfoWithOpenKeyFields(1);
+
+    KeyInfo keyInfo = originKey.getProtobuf(true, ClientVersion.CURRENT_VERSION);
+
+    assertFalse(keyInfo.hasExpectedDataGeneration());
+  }
+
+  @Test
+  public void testKeyTableCodecExcludesOpenKeyFields() throws IOException {
+    final Codec<OmKeyInfo> keyTableCodec = OmKeyInfoCodec.get();
+    OmKeyInfo originKey = getKeyInfoWithOpenKeyFields(1);
+    assertEquals(12345L, originKey.getExpectedDataGeneration());
+
+    byte[] rawData = keyTableCodec.toPersistedFormat(originKey);
+    KeyInfo keyInfo = KeyInfo.parseFrom(rawData);
+    assertFalse(keyInfo.hasExpectedDataGeneration(),
+        "keyTable codec should NOT include expectedDataGeneration in proto");
+
+    OmKeyInfo deserializedKey = keyTableCodec.fromPersistedFormat(rawData);
+    assertEquals(VOLUME, deserializedKey.getVolumeName());
+    assertEquals(BUCKET, deserializedKey.getBucketName());
+    assertEquals(KEYNAME, deserializedKey.getKeyName());
+    assertEquals(100, deserializedKey.getDataSize());
+
+    assertNull(deserializedKey.getExpectedDataGeneration(),
+        "Deserialized key from keyTable should have null expectedDataGeneration");
+  }
+
+  @Test
+  public void testKeyTableCodecCanReadOpenKeyTableData() throws IOException {
+    final Codec<OmKeyInfo> openKeyCodec = OmOpenKeyInfoCodec.get();
+    final Codec<OmKeyInfo> keyTableCodec = OmKeyInfoCodec.get();
+
+    OmKeyInfo originKey = getKeyInfoWithOpenKeyFields(1);
+    byte[] rawData = openKeyCodec.toPersistedFormat(originKey);
+    OmKeyInfo deserializedKey = keyTableCodec.fromPersistedFormat(rawData);
+
+    assertEquals(VOLUME, deserializedKey.getVolumeName());
+    assertEquals(BUCKET, deserializedKey.getBucketName());
+    assertEquals(12345L, deserializedKey.getExpectedDataGeneration());
+  }
+
+  @Test
+  public void testCodecsWithKeyWithoutOpenKeyFields() throws IOException {
+    final Codec<OmKeyInfo> openKeyCodec = OmOpenKeyInfoCodec.get();
+    final Codec<OmKeyInfo> keyTableCodec = OmKeyInfoCodec.get();
+
+    OmKeyInfo originKey = getKeyInfo(1);
+    assertNull(originKey.getExpectedDataGeneration());
+
+    byte[] openKeyData = openKeyCodec.toPersistedFormat(originKey);
+    byte[] keyTableData = keyTableCodec.toPersistedFormat(originKey);
+
+    OmKeyInfo fromOpenKeyCodec = openKeyCodec.fromPersistedFormat(openKeyData);
+    OmKeyInfo fromKeyTableCodec = keyTableCodec.fromPersistedFormat(keyTableData);
+
+    assertEquals(VOLUME, fromOpenKeyCodec.getVolumeName());
+    assertEquals(VOLUME, fromKeyTableCodec.getVolumeName());
+    assertEquals(BUCKET, fromOpenKeyCodec.getBucketName());
+    assertEquals(BUCKET, fromKeyTableCodec.getBucketName());
+    assertNull(fromOpenKeyCodec.getExpectedDataGeneration());
+    assertNull(fromKeyTableCodec.getExpectedDataGeneration());
+  }
+
+  @Test
+  public void testKeyTableCodecProducesSmallerOutput() throws IOException {
+    final Codec<OmKeyInfo> openKeyCodec = OmOpenKeyInfoCodec.get();
+    final Codec<OmKeyInfo> keyTableCodec = OmKeyInfoCodec.get();
+
+    OmKeyInfo keyWithOpenFields = getKeyInfoWithOpenKeyFields(1);
+
+    byte[] openKeyData = openKeyCodec.toPersistedFormat(keyWithOpenFields);
+    byte[] keyTableData = keyTableCodec.toPersistedFormat(keyWithOpenFields);
+
+    assertTrue(keyTableData.length < openKeyData.length,
+        "keyTable codec should produce smaller serialized output when openKeyTable-only fields are set");
   }
 }

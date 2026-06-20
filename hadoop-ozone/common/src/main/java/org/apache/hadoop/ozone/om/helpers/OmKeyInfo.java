@@ -35,11 +35,7 @@ import org.apache.hadoop.hdds.client.ECReplicationConfig;
 import org.apache.hadoop.hdds.client.RatisReplicationConfig;
 import org.apache.hadoop.hdds.client.ReplicationConfig;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos.ReplicationFactor;
-import org.apache.hadoop.hdds.utils.db.Codec;
 import org.apache.hadoop.hdds.utils.db.CopyObject;
-import org.apache.hadoop.hdds.utils.db.DelegatedCodec;
-import org.apache.hadoop.hdds.utils.db.Proto2Codec;
-import org.apache.hadoop.ozone.ClientVersion;
 import org.apache.hadoop.ozone.OzoneAcl;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.FileChecksumProto;
@@ -59,7 +55,6 @@ public final class OmKeyInfo extends WithParentObjectId
     implements CopyObject<OmKeyInfo>, WithTags {
   private static final Logger LOG = LoggerFactory.getLogger(OmKeyInfo.class);
 
-  private static final Codec<OmKeyInfo> CODEC = newCodec();
   /**
    * Metadata key flag to indicate whether a deleted key was a committed key.
    * The flag is set when a committed key is deleted from AOS but still held in
@@ -108,7 +103,7 @@ public final class OmKeyInfo extends WithParentObjectId
   // generation unchanged.
   // This allows a key to be created an committed atomically if the original has not
   // been modified.
-  private Long expectedDataGeneration = null;
+  private final Long expectedDataGeneration;
 
   private OmKeyInfo(Builder b) {
     super(b);
@@ -128,18 +123,6 @@ public final class OmKeyInfo extends WithParentObjectId
     this.ownerName = b.ownerName;
     this.tags = b.tags.build();
     this.expectedDataGeneration = b.expectedDataGeneration;
-  }
-
-  private static Codec<OmKeyInfo> newCodec() {
-    return new DelegatedCodec<>(
-        Proto2Codec.get(KeyInfo.getDefaultInstance()),
-        OmKeyInfo::getFromProtobuf,
-        k -> k.getProtobuf(true, ClientVersion.CURRENT_VERSION),
-        OmKeyInfo.class);
-  }
-
-  public static Codec<OmKeyInfo> getCodec() {
-    return CODEC;
   }
 
   public String getVolumeName() {
@@ -177,10 +160,6 @@ public final class OmKeyInfo extends WithParentObjectId
 
   public String getFileName() {
     return fileName;
-  }
-
-  public void setExpectedDataGeneration(Long generation) {
-    this.expectedDataGeneration = generation;
   }
 
   public Long getExpectedDataGeneration() {
@@ -748,6 +727,23 @@ public final class OmKeyInfo extends WithParentObjectId
    */
   private KeyInfo getProtobuf(boolean ignorePipeline, String fullKeyName,
                               int clientVersion, boolean latestVersionBlocks) {
+    return getProtobufBuilder(ignorePipeline, fullKeyName, clientVersion,
+        latestVersionBlocks).build();
+  }
+
+  /**
+   * Gets KeyInfo builder with all parameters.
+   *
+   * @param ignorePipeline   ignore pipeline flag
+   * @param fullKeyName user given key name
+   * @param clientVersion the client version
+   * @param latestVersionBlocks whether to include only latest version blocks
+   * @return key info builder
+   */
+  private KeyInfo.Builder getProtobufBuilder(boolean ignorePipeline,
+                                             String fullKeyName,
+                                             int clientVersion,
+                                             boolean latestVersionBlocks) {
     long latestVersion = keyLocationVersions.isEmpty() ? -1 :
         keyLocationVersions.get(keyLocationVersions.size() - 1).getVersion();
 
@@ -799,13 +795,14 @@ public final class OmKeyInfo extends WithParentObjectId
       kb.setFileEncryptionInfo(OMPBHelper.convert(encInfo));
     }
     kb.setIsFile(isFile);
-    if (expectedDataGeneration != null) {
-      kb.setExpectedDataGeneration(expectedDataGeneration);
-    }
     if (ownerName != null) {
       kb.setOwnerName(ownerName);
     }
-    return kb.build();
+    return kb;
+  }
+
+  KeyInfo.Builder getProtobufBuilder(boolean ignorePipeline, int clientVersion) {
+    return getProtobufBuilder(ignorePipeline, null, clientVersion, false);
   }
 
   public static Builder builderFromProtobuf(KeyInfo keyInfo) {
