@@ -81,11 +81,12 @@ import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.common.utils.BufferUtils;
 import org.apache.hadoop.ozone.container.common.helpers.ContainerUtils;
 import org.apache.hadoop.ozone.container.common.interfaces.ContainerDispatcher;
-import org.apache.hadoop.ozone.container.common.interfaces.ReadBlockStreamObserver;
+import org.apache.hadoop.ozone.container.common.interfaces.ContainerDispatcher.ReadBlockResponse;
 import org.apache.hadoop.ozone.container.common.statemachine.DatanodeConfiguration;
 import org.apache.hadoop.ozone.container.keyvalue.impl.KeyValueStreamDataChannel;
 import org.apache.hadoop.ozone.container.ozoneimpl.ContainerController;
 import org.apache.hadoop.util.Time;
+import org.apache.ratis.datastream.DataStreamObserver;
 import org.apache.ratis.proto.RaftProtos;
 import org.apache.ratis.proto.RaftProtos.LogEntryProto;
 import org.apache.ratis.proto.RaftProtos.RaftPeerRole;
@@ -113,7 +114,6 @@ import org.apache.ratis.statemachine.impl.SingleFileSnapshotInfo;
 import org.apache.ratis.thirdparty.com.google.protobuf.ByteString;
 import org.apache.ratis.thirdparty.com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.ratis.thirdparty.com.google.protobuf.TextFormat;
-import org.apache.ratis.thirdparty.io.grpc.stub.StreamObserver;
 import org.apache.ratis.util.FileUtils;
 import org.apache.ratis.util.JavaUtils;
 import org.apache.ratis.util.LifeCycle;
@@ -882,19 +882,14 @@ public class ContainerStateMachine extends BaseStateMachine {
       WritableByteChannel stream) throws IOException {
     final AtomicReference<Throwable> error = new AtomicReference<>();
     final AtomicBoolean responseSeen = new AtomicBoolean(false);
-    final ReadBlockStreamObserver observer =
-        new ReadBlockStreamObserver() {
+    final DataStreamObserver<ReadBlockResponse> observer =
+        new DataStreamObserver<ReadBlockResponse>() {
           @Override
-          public void onNext(ContainerCommandResponseProto response) {
-            onNextReadBlock(response, null);
-          }
-
-          @Override
-          public void onNextReadBlock(
-              ContainerCommandResponseProto response, ByteBuffer data) {
+          public void onNext(ReadBlockResponse response) {
             responseSeen.set(true);
             try {
-              writeReadBlockStreamResponse(stream, response, data);
+              writeReadBlockStreamResponse(stream, response.getResponse(),
+                  response.getData());
             } catch (IOException e) {
               error.compareAndSet(null, e);
               throw new CompletionException(e);
@@ -913,10 +908,6 @@ public class ContainerStateMachine extends BaseStateMachine {
           public void onCompleted() {
           }
 
-          @Override
-          public boolean retainsReadBlockDataBuffer() {
-            return false;
-          }
         };
 
     try (RandomAccessFileChannel blockFile = new RandomAccessFileChannel()) {
@@ -1018,11 +1009,15 @@ public class ContainerStateMachine extends BaseStateMachine {
       ContainerCommandRequestProto requestProto) throws IOException {
     final List<ContainerCommandResponseProto> responses = new ArrayList<>();
     final AtomicReference<Throwable> error = new AtomicReference<>();
-    final StreamObserver<ContainerCommandResponseProto> observer =
-        new StreamObserver<ContainerCommandResponseProto>() {
+    final DataStreamObserver<ReadBlockResponse> observer =
+        new DataStreamObserver<ReadBlockResponse>() {
           @Override
-          public void onNext(ContainerCommandResponseProto response) {
-            responses.add(response);
+          public void onNext(ReadBlockResponse response) {
+            responses.add(response.getData() == null ? response.getResponse()
+                : response.getResponse().toBuilder()
+                    .setReadBlock(response.getResponse().getReadBlock().toBuilder()
+                        .setData(ByteString.copyFrom(response.getData())))
+                    .build());
           }
 
           @Override
