@@ -36,7 +36,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
-import java.util.function.BooleanSupplier;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.hdds.client.ECReplicationConfig;
 import org.apache.hadoop.hdds.client.RatisReplicationConfig;
@@ -90,12 +89,6 @@ public final class TestHelper {
    * Never constructed.
    */
   private TestHelper() {
-  }
-
-  private static void waitForCondition(BooleanSupplier check,
-      int checkEveryMillis, int waitForMillis)
-      throws TimeoutException, InterruptedException {
-    GenericTestUtils.waitFor(check, checkEveryMillis, waitForMillis);
   }
 
   public static boolean isContainerClosed(MiniOzoneCluster cluster,
@@ -280,9 +273,9 @@ public final class TestHelper {
           // Client will issue write chunk and it will create the container on
           // datanodes.
           // wait for the container to be created
-          waitForCondition(
-              () -> isContainerPresent(cluster, containerID, details),
-              500, 100 * 1000);
+          GenericTestUtils
+              .waitFor(() -> isContainerPresent(cluster, containerID, details),
+                  500, 100 * 1000);
           assertTrue(isContainerPresent(cluster, containerID, details));
 
           // make sure the container gets created first
@@ -310,7 +303,7 @@ public final class TestHelper {
             cluster.getHddsDatanodes().get(cluster.getHddsDatanodeIndex(dn))
                 .getDatanodeStateMachine().getContainer().getWriteChannel();
         assertInstanceOf(XceiverServerRatis.class, server);
-        waitForCondition(() -> !server.isExist(pipelineId),
+        GenericTestUtils.waitFor(() -> !server.isExist(pipelineId),
             100, 30_000);
       }
     }
@@ -358,9 +351,9 @@ public final class TestHelper {
         // Client will issue write chunk and it will create the container on
         // datanodes.
         // wait for the container to be created
-        waitForCondition(
-            () -> isContainerPresent(cluster, containerID, details),
-            500, 100 * 1000);
+        GenericTestUtils
+            .waitFor(() -> isContainerPresent(cluster, containerID, details),
+                500, 100 * 1000);
         assertTrue(isContainerPresent(cluster, containerID, details));
 
         // make sure the container gets created first
@@ -377,7 +370,7 @@ public final class TestHelper {
       // but not yet been used by the client. In such a case container is never
       // created.
       for (DatanodeDetails datanodeDetails : datanodes) {
-        waitForCondition(
+        GenericTestUtils.waitFor(
             () -> isContainerClosed(cluster, containerID, datanodeDetails), 500,
             15 * 1000);
         //double check if it's really closed
@@ -392,7 +385,7 @@ public final class TestHelper {
   public static void waitForScmContainerState(MiniOzoneCluster cluster, long containerID,
                                               HddsProtos.LifeCycleState lifeCycleState)
       throws InterruptedException, TimeoutException {
-    waitForCondition(() ->  {
+    GenericTestUtils.waitFor(() ->  {
       try {
         HddsProtos.LifeCycleState state = cluster.getStorageContainerManager().getContainerManager()
             .getContainer(ContainerID.valueOf(containerID)).getState();
@@ -467,7 +460,7 @@ public final class TestHelper {
 
   public static void waitForReplicaCount(long containerID, int count,
       MiniOzoneCluster cluster) throws TimeoutException, InterruptedException {
-    waitForCondition(() -> countReplicas(containerID, cluster) == count,
+    GenericTestUtils.waitFor(() -> countReplicas(containerID, cluster) == count,
         200, 30000);
   }
 
@@ -485,7 +478,7 @@ public final class TestHelper {
       ContainerID containerID, HddsProtos.LifeCycleState expectedState)
       throws TimeoutException, InterruptedException {
     ContainerManager containerManager = scm.getContainerManager();
-    waitForCondition(() -> {
+    GenericTestUtils.waitFor(() -> {
       try {
         return containerManager.getContainer(containerID).getState() == expectedState;
       } catch (ContainerNotFoundException e) {
