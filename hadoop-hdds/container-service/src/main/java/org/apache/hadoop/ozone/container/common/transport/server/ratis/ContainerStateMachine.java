@@ -867,7 +867,7 @@ public class ContainerStateMachine extends BaseStateMachine {
       final ContainerCommandRequestProto requestProto =
           message2ContainerCommandRequestProto(request);
       if (requestProto.getCmdType() == Type.ReadBlock) {
-        streamReadBlock(requestProto, stream);
+        streamReadBlock(dispatcher, requestProto, stream);
       } else {
         writeAndClose(stream, dispatchCommand(requestProto, null));
       }
@@ -877,7 +877,8 @@ public class ContainerStateMachine extends BaseStateMachine {
     }
   }
 
-  private void streamReadBlock(
+  static void streamReadBlock(
+      ContainerDispatcher dispatcher,
       ContainerCommandRequestProto requestProto,
       WritableByteChannel stream) throws IOException {
     final AtomicReference<Throwable> error = new AtomicReference<>();

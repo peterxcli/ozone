@@ -17,8 +17,6 @@
 
 package org.apache.hadoop.hdds.scm.storage;
 
-import static org.apache.hadoop.hdds.DatanodeVersion.STREAM_BLOCK_SUPPORT;
-
 import com.google.common.annotations.VisibleForTesting;
 import java.io.EOFException;
 import java.io.IOException;
@@ -29,7 +27,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.hadoop.hdds.client.BlockID;
 import org.apache.hadoop.hdds.protocol.DatanodeDetails;
@@ -55,7 +52,6 @@ import org.apache.ratis.datastream.impl.DataStreamReplyByteBuffer;
 import org.apache.ratis.proto.RaftProtos.DataStreamPacketHeaderProto.Type;
 import org.apache.ratis.protocol.DataStreamReply;
 import org.apache.ratis.protocol.RaftClientReply;
-import org.apache.ratis.protocol.exceptions.GroupMismatchException;
 import org.apache.ratis.thirdparty.com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.ratis.thirdparty.io.netty.buffer.ByteBuf;
 import org.apache.ratis.util.Preconditions;
@@ -64,7 +60,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Reads RATIS blocks through the Ratis data stream read-only API.
+ * Reads RATIS blocks exclusively through the Ratis data stream read-only API.
  */
 public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   private static final Logger LOG =
@@ -79,8 +75,6 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   private final AtomicReference<Token<OzoneBlockTokenIdentifier>> tokenRef =
       new AtomicReference<>();
   private final XceiverClientFactory xceiverClientFactory;
-  private final Function<BlockID, BlockLocationInfo> refreshFunction;
-  private final OzoneClientConfig config;
   private final boolean verifyChecksum;
   private final long preReadSize;
   private final long readWindowSize;
@@ -91,7 +85,6 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   private DataStreamInput streamInput;
   private ByteBuffer buffer = EMPTY_BUFFER;
   private ReferenceCountedObject<DataStreamReply> retainedDataReply;
-  private BlockExtendedInputStream fallbackStream;
   private long position;
   private boolean streamDataSeen;
   private boolean largeReadWindowEligible;
@@ -100,7 +93,6 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   public RatisDataStreamBlockInputStream(BlockID blockID, long length,
       Pipeline pipeline, Token<OzoneBlockTokenIdentifier> token,
       XceiverClientFactory xceiverClientFactory,
-      Function<BlockID, BlockLocationInfo> refreshFunction,
       OzoneClientConfig config) throws IOException {
     this.blockID = Objects.requireNonNull(blockID, "blockID == null");
     this.blockLength = length;
@@ -108,8 +100,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
     tokenRef.set(token);
     this.xceiverClientFactory = Objects.requireNonNull(xceiverClientFactory,
         "xceiverClientFactory == null");
-    this.refreshFunction = refreshFunction;
-    this.config = Objects.requireNonNull(config, "config == null");
+    Objects.requireNonNull(config, "config == null");
     this.verifyChecksum = config.isChecksumVerify();
     this.preReadSize = config.getStreamReadPreReadSize();
     this.readWindowSize = config.getRatisStreamReadWindowSize();
@@ -129,7 +120,7 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
 
   @Override
   public long getPos() {
-    return fallbackStream != null ? fallbackStream.getPos() : position;
+    return position;
   }
 
   @Override
@@ -154,15 +145,6 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
     }
     int read = 0;
     while (targetBuf.hasRemaining() && position < blockLength) {
-      if (fallbackStream != null) {
-        final int fallbackRead = readFallback(targetBuf);
-        if (fallbackRead <= 0) {
-          break;
-        }
-        read += fallbackRead;
-        continue;
-      }
-
       if (!buffer.hasRemaining()) {
         releaseRetainedDataReply();
         buffer = readBlock(targetBuf.remaining(), preRead);
@@ -200,14 +182,6 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
       throw new EOFException("Failed to seek to position " + pos
           + " > block length = " + blockLength);
     }
-    if (fallbackStream != null) {
-      fallbackStream.seek(pos);
-      position = fallbackStream.getPos();
-      discardBufferedData();
-      largeReadWindowEligible = false;
-      return;
-    }
-
     if (pos != position) {
       closeStream();
       position = pos;
@@ -219,16 +193,11 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
   @Override
   public synchronized boolean seekToNewSource(long targetPos)
       throws IOException {
-    return fallbackStream != null && fallbackStream.seekToNewSource(targetPos);
+    return false;
   }
 
   @Override
   public synchronized void unbuffer() {
-    if (fallbackStream != null) {
-      fallbackStream.unbuffer();
-      return;
-    }
-
     discardBufferedData();
     releaseClient(false);
   }
@@ -239,130 +208,41 @@ public class RatisDataStreamBlockInputStream extends BlockExtendedInputStream {
     discardBufferedData();
     closeStream();
     releaseClient(false);
-    if (fallbackStream != null) {
-      try {
-        fallbackStream.close();
-      } catch (IOException e) {
-        LOG.debug("Failed to close fallback stream for {}", blockID, e);
-      } finally {
-        fallbackStream = null;
-      }
-    }
-  }
-
-  @VisibleForTesting
-  public synchronized BlockExtendedInputStream getFallbackStreamForTesting() {
-    return fallbackStream;
   }
 
   private ByteBuffer readBlock(int length, boolean preRead) throws IOException {
     while (position < blockLength) {
-      try {
-        if (streamInput == null) {
-          streamDataSeen = false;
-          streamInput = openStream(length, preRead);
-        }
+      if (streamInput == null) {
+        streamDataSeen = false;
+        streamInput = openStream(length, preRead);
+      }
 
-        final ReferenceCountedObject<DataStreamReply> ref = readReply();
-        final DataStreamReply reply = ref.get();
-        if (reply.getType() == Type.STREAM_DATA) {
-          streamDataSeen = true;
-          final ByteBuffer data = readDataReply(ref);
-          if (data.hasRemaining()) {
-            return data;
-          }
-        } else if (reply.getType() == Type.STREAM_HEADER) {
-          handleTerminalReply(ref);
-          if (!streamDataSeen && position < blockLength) {
-            throw new EOFException("ReadBlock stream returned no data for "
-                + blockID + " at position " + position);
-          }
-          largeReadWindowEligible = streamDataSeen;
-          closeStream();
-        } else {
-          try {
-            throw new IOException("Unexpected data stream reply type "
-                + reply.getType() + " for " + blockID);
-          } finally {
-            ref.release();
-          }
+      final ReferenceCountedObject<DataStreamReply> ref = readReply();
+      final DataStreamReply reply = ref.get();
+      if (reply.getType() == Type.STREAM_DATA) {
+        streamDataSeen = true;
+        final ByteBuffer data = readDataReply(ref);
+        if (data.hasRemaining()) {
+          return data;
         }
-      } catch (IOException e) {
-        if (shouldFallbackToBlockInputStream(e)) {
-          return readFallbackBlock(length, e);
+      } else if (reply.getType() == Type.STREAM_HEADER) {
+        handleTerminalReply(ref);
+        if (!streamDataSeen && position < blockLength) {
+          throw new EOFException("ReadBlock stream returned no data for "
+              + blockID + " at position " + position);
         }
-        throw e;
+        largeReadWindowEligible = streamDataSeen;
+        closeStream();
+      } else {
+        try {
+          throw new IOException("Unexpected data stream reply type "
+              + reply.getType() + " for " + blockID);
+        } finally {
+          ref.release();
+        }
       }
     }
     return ByteBuffer.allocate(0);
-  }
-
-  private boolean shouldFallbackToBlockInputStream(IOException cause) {
-    return fallbackStream == null && !streamDataSeen && position < blockLength
-        && isGroupMismatch(cause);
-  }
-
-  private ByteBuffer readFallbackBlock(int length, IOException cause)
-      throws IOException {
-    LOG.info("Falling back from Ratis read-only data stream for block {} "
-            + "at position {} because the Ratis group is unavailable: {}",
-        blockID, position, cause.toString());
-    releaseClient(false);
-    fallbackStream = createFallbackStream();
-    fallbackStream.seek(position);
-
-    final long requestedLength =
-        Math.max(1L, Math.min((long) length, (long) responseDataSize));
-    final int readLength =
-        Math.toIntExact(Math.min(requestedLength, blockLength - position));
-    final ByteBuffer fallbackBuffer = ByteBuffer.allocate(readLength);
-    final int read = fallbackStream.read(fallbackBuffer);
-    if (read <= 0) {
-      return EMPTY_BUFFER;
-    }
-    fallbackBuffer.flip();
-    return fallbackBuffer;
-  }
-
-  private int readFallback(ByteBuffer targetBuf) throws IOException {
-    final int read = fallbackStream.read(targetBuf);
-    if (read > 0) {
-      position = fallbackStream.getPos();
-    }
-    return read;
-  }
-
-  private BlockExtendedInputStream createFallbackStream() throws IOException {
-    final Pipeline pipeline = pipelineRef.get();
-    if (config.isStreamReadBlock() && allDataNodesSupportStreamBlock(pipeline)) {
-      return new StreamBlockInputStream(blockID, blockLength, pipeline,
-          tokenRef.get(), xceiverClientFactory, refreshFunction, config);
-    }
-
-    final BlockLocationInfo blockInfo = new BlockLocationInfo.Builder()
-        .setBlockID(blockID)
-        .setLength(blockLength)
-        .build();
-    return new BlockInputStream(blockInfo, pipeline, tokenRef.get(),
-        xceiverClientFactory, refreshFunction, config);
-  }
-
-  private static boolean allDataNodesSupportStreamBlock(Pipeline pipeline) {
-    for (DatanodeDetails dn : pipeline.getNodes()) {
-      if (dn.getCurrentVersion() < STREAM_BLOCK_SUPPORT.toProtoValue()) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private static boolean isGroupMismatch(Throwable throwable) {
-    for (Throwable t = throwable; t != null; t = t.getCause()) {
-      if (t instanceof GroupMismatchException) {
-        return true;
-      }
-    }
-    return false;
   }
 
   private DataStreamInput openStream(int length, boolean preRead)

@@ -19,8 +19,8 @@ package org.apache.hadoop.ozone.client.rpc.read;
 
 import static org.apache.hadoop.hdds.protocol.proto.HddsProtos.ReplicationFactor.ONE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
@@ -33,9 +33,11 @@ import java.util.List;
 import org.apache.hadoop.hdds.StringUtils;
 import org.apache.hadoop.hdds.client.RatisReplicationConfig;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
+import org.apache.hadoop.hdds.protocol.DatanodeDetails;
 import org.apache.hadoop.hdds.scm.OzoneClientConfig;
+import org.apache.hadoop.hdds.scm.container.ContainerID;
+import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.scm.storage.BlockExtendedInputStream;
-import org.apache.hadoop.hdds.scm.storage.BlockInputStream;
 import org.apache.hadoop.hdds.scm.storage.RatisDataStreamBlockInputStream;
 import org.apache.hadoop.ozone.MiniOzoneCluster;
 import org.apache.hadoop.ozone.client.OzoneBucket;
@@ -45,6 +47,7 @@ import org.apache.hadoop.ozone.client.io.BlockDataStreamOutputEntry;
 import org.apache.hadoop.ozone.client.io.KeyInputStream;
 import org.apache.hadoop.ozone.client.io.OzoneDataStreamOutput;
 import org.apache.hadoop.ozone.container.TestHelper;
+import org.apache.hadoop.ozone.container.common.transport.server.XceiverServerSpi;
 import org.apache.hadoop.ozone.om.TestBucket;
 import org.apache.ratis.util.SizeInBytes;
 import org.junit.jupiter.api.Test;
@@ -75,17 +78,16 @@ public class TestRatisDataStreamReadBlock {
         try (KeyInputStream in = testBucket.getKeyInputStream(keyName)) {
           final List<RatisDataStreamBlockInputStream> streams =
               assertRatisStreams(in);
-          assertNoFallback(streams);
           assertEquals(0, streams.get(0).read(ByteBuffer.allocate(0)));
           assertEquals(expectedMd5, readMd5(in));
-          assertNoFallback(streams);
         }
       }
     }
   }
 
   @Test
-  void readClosedContainerWithRatisDataStream() throws Exception {
+  void readClosedContainerAfterRatisGroupRemovalWithRatisDataStream()
+      throws Exception {
     try (MiniOzoneCluster cluster = TestStreamRead.newCluster(16 << 10)) {
       cluster.waitForClusterToBeReady();
 
@@ -99,21 +101,12 @@ public class TestRatisDataStreamReadBlock {
       try (OzoneClient client = OzoneClientFactory.getRpcClient(conf)) {
         final TestBucket testBucket = TestBucket.newBuilder(client).build();
         final String keyName = "ratis-datastream-read-closed-container";
-        final String expectedMd5 = createKeyAndCloseContainers(
+        final String expectedMd5 = createKeyAndCloseContainersAndRemoveGroups(
             cluster, testBucket.delegate(), keyName);
 
         try (KeyInputStream in = testBucket.getKeyInputStream(keyName)) {
-          final List<RatisDataStreamBlockInputStream> streams =
-              assertRatisStreams(in);
-          assertNoFallback(streams);
+          assertRatisStreams(in);
           assertEquals(expectedMd5, readMd5(in));
-          for (RatisDataStreamBlockInputStream stream : streams) {
-            final BlockExtendedInputStream fallback =
-                stream.getFallbackStreamForTesting();
-            assertInstanceOf(BlockInputStream.class, fallback);
-            assertEquals(stream.getLength(), fallback.getPos());
-            assertEquals(stream.getLength(), stream.getPos());
-          }
         }
       }
     }
@@ -131,13 +124,6 @@ public class TestRatisDataStreamReadBlock {
     return streams;
   }
 
-  private static void assertNoFallback(
-      List<RatisDataStreamBlockInputStream> streams) {
-    for (RatisDataStreamBlockInputStream stream : streams) {
-      assertNull(stream.getFallbackStreamForTesting());
-    }
-  }
-
   private static String createKey(OzoneBucket bucket, String keyName) throws Exception {
     try (OutputStream out = bucket.createStreamKey(keyName, KEY_SIZE.getSize(),
         RatisReplicationConfig.getInstance(ONE), Collections.emptyMap())) {
@@ -145,8 +131,9 @@ public class TestRatisDataStreamReadBlock {
     }
   }
 
-  private static String createKeyAndCloseContainers(MiniOzoneCluster cluster,
-      OzoneBucket bucket, String keyName) throws Exception {
+  private static String createKeyAndCloseContainersAndRemoveGroups(
+      MiniOzoneCluster cluster, OzoneBucket bucket, String keyName)
+      throws Exception {
     final String expectedMd5;
     final List<Long> containerIds;
     try (OzoneDataStreamOutput out = bucket.createStreamKey(keyName,
@@ -155,8 +142,40 @@ public class TestRatisDataStreamReadBlock {
       expectedMd5 = writeKey(out);
       containerIds = getContainerIds(out);
     }
+    final List<Pipeline> pipelines = getPipelines(cluster, containerIds);
     TestHelper.waitForContainerClose(cluster, containerIds.toArray(new Long[0]));
+    removeRatisGroups(cluster, pipelines);
     return expectedMd5;
+  }
+
+  private static List<Pipeline> getPipelines(MiniOzoneCluster cluster,
+      List<Long> containerIds) throws Exception {
+    final List<Pipeline> pipelines = new ArrayList<>();
+    for (long containerId : containerIds) {
+      final Pipeline pipeline = cluster.getStorageContainerManager()
+          .getPipelineManager().getPipeline(cluster.getStorageContainerManager()
+              .getContainerManager().getContainer(
+                  ContainerID.valueOf(containerId)).getPipelineID());
+      if (!pipelines.contains(pipeline)) {
+        pipelines.add(pipeline);
+      }
+    }
+    return pipelines;
+  }
+
+  private static void removeRatisGroups(MiniOzoneCluster cluster,
+      List<Pipeline> pipelines) throws Exception {
+    for (Pipeline pipeline : pipelines) {
+      for (DatanodeDetails dn : pipeline.getNodes()) {
+        final XceiverServerSpi server = cluster.getHddsDatanodes()
+            .get(cluster.getHddsDatanodeIndex(dn)).getDatanodeStateMachine()
+            .getContainer().getWriteChannel();
+        if (server.isExist(pipeline.getId().getProtobuf())) {
+          server.removeGroup(pipeline.getId().getProtobuf());
+        }
+        assertFalse(server.isExist(pipeline.getId().getProtobuf()));
+      }
+    }
   }
 
   private static List<Long> getContainerIds(OzoneDataStreamOutput out) {
