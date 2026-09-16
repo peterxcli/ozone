@@ -597,7 +597,7 @@ public class TestContainerStateMachineFailures {
         (SimpleStateMachineStorage) stateMachine.getStateMachineStorage();
     final FileInfo snapshot = getSnapshotFileInfo(storage);
     final Path parentPath = snapshot.getPath();
-    stateMachine.takeSnapshot();
+    OzoneTestHelper.takeSnapshot(dn, omKeyLocationInfo.getPipeline());
     assertThat(parentPath.getParent().toFile().listFiles().length).isGreaterThan(0);
     assertNotNull(snapshot);
     long markIndex1 = StatemachineImplTestUtil.findLatestSnapshot(storage)
@@ -624,7 +624,7 @@ public class TestContainerStateMachineFailures {
     GenericTestUtils.waitFor(() -> stateMachine.getLastAppliedTermIndex().getIndex() != markIndex1,
         1000, 30000);
     try {
-      stateMachine.takeSnapshot();
+      OzoneTestHelper.takeSnapshot(dn, pipeline);
     } finally {
       xceiverClientManager.releaseClient(xceiverClient, false);
     }
@@ -689,7 +689,7 @@ public class TestContainerStateMachineFailures {
         (SimpleStateMachineStorage) stateMachine.getStateMachineStorage();
     final FileInfo snapshot = getSnapshotFileInfo(storage);
     final Path parentPath = snapshot.getPath();
-    stateMachine.takeSnapshot();
+    OzoneTestHelper.takeSnapshot(dn, omKeyLocationInfo.getPipeline());
     // Since the snapshot threshold is set to 1, since there are
     // applyTransactions, we should see snapshots
     assertThat(parentPath.getParent().toFile().listFiles().length).isGreaterThan(0);
@@ -768,7 +768,7 @@ public class TestContainerStateMachineFailures {
               .getContainerState(),
           ContainerProtos.ContainerDataProto.State.CLOSED);
       assertTrue(stateMachine.isStateMachineHealthy());
-      stateMachine.takeSnapshot();
+      OzoneTestHelper.takeSnapshot(dn, pipeline);
 
       final FileInfo latestSnapshot = getSnapshotFileInfo(storage);
       assertNotEquals(snapshot.getPath(), latestSnapshot.getPath());

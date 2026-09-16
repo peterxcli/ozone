@@ -246,6 +246,7 @@ public class TestOzoneManagerHAWithStoppedNodes extends OzoneManagerHATests {
     // On stopping the current OM Proxy, the next connection attempt should
     // failover to a another OM proxy.
     getCluster().stopOzoneManager(firstProxyNodeId);
+    waitForLeaderToBeReady();
 
     // Next request to the proxy provider should result in a failover
     createVolumeTest(true);

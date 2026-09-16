@@ -187,7 +187,7 @@ public class TestValidateBCSIDOnRestart {
             omKeyLocationInfo.getPipeline());
     SimpleStateMachineStorage storage =
         (SimpleStateMachineStorage) stateMachine.getStateMachineStorage();
-    stateMachine.takeSnapshot();
+    OzoneTestHelper.takeSnapshot(dnService, omKeyLocationInfo.getPipeline());
     final Path parentPath = StatemachineImplTestUtil.findLatestSnapshot(storage)
         .getFile().getPath();
     stateMachine.buildMissingContainerSet(parentPath.toFile());
