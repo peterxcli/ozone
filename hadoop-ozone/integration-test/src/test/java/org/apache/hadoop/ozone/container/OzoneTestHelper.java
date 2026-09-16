@@ -73,6 +73,9 @@ import org.apache.hadoop.ozone.container.common.transport.server.XceiverServerSp
 import org.apache.hadoop.ozone.container.common.transport.server.ratis.XceiverServerRatis;
 import org.apache.hadoop.ozone.om.helpers.OmKeyLocationInfo;
 import org.apache.ozone.test.GenericTestUtils;
+import org.apache.ratis.protocol.ClientId;
+import org.apache.ratis.protocol.RaftClientReply;
+import org.apache.ratis.protocol.SnapshotManagementRequest;
 import org.apache.ratis.server.RaftServer;
 import org.apache.ratis.statemachine.StateMachine;
 import org.slf4j.Logger;
@@ -415,6 +418,15 @@ public final class OzoneTestHelper {
   public static StateMachine getStateMachine(HddsDatanodeService dn,
       Pipeline pipeline) throws Exception {
     return getRaftServerDivision(dn, pipeline).getStateMachine();
+  }
+
+  /** Request snapshots through Ratis to serialize them with automatic snapshots. */
+  public static void takeSnapshot(HddsDatanodeService dn, Pipeline pipeline) throws Exception {
+    RaftServer.Division division = getRaftServerDivision(dn, pipeline);
+    SnapshotManagementRequest request = SnapshotManagementRequest.newCreate(
+        ClientId.randomId(), division.getId(), division.getGroup().getGroupId(), 0, 30000, 1);
+    RaftClientReply reply = division.getRaftServer().snapshotManagement(request);
+    assertTrue(reply.isSuccess(), () -> "Snapshot request failed: " + reply.getException());
   }
 
   public static HddsDatanodeService getDatanodeService(OmKeyLocationInfo info,

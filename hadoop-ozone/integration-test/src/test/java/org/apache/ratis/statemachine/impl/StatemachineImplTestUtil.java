@@ -29,4 +29,8 @@ public interface StatemachineImplTestUtil {
     final File dir = storage.getStateMachineDir();
     return SimpleStateMachineStorage.findLatestSnapshot(dir.toPath());
   }
+
+  static int countSnapshots(SimpleStateMachineStorage storage) throws IOException {
+    return SimpleStateMachineStorage.getSingleFileSnapshotInfos(storage.getStateMachineDir().toPath()).size();
+  }
 }
