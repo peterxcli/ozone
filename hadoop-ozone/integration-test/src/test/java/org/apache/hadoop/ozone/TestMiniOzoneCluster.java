@@ -46,7 +46,7 @@ import org.apache.hadoop.ozone.container.common.statemachine.DatanodeStateMachin
 import org.apache.hadoop.ozone.container.common.statemachine.EndpointStateMachine;
 import org.apache.hadoop.ozone.container.common.volume.StorageVolume;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -56,10 +56,10 @@ import org.junit.jupiter.api.io.TempDir;
 public class TestMiniOzoneCluster {
 
   private MiniOzoneCluster cluster;
-  private OzoneConfiguration conf;
+  private static OzoneConfiguration conf;
 
-  @BeforeEach
-  void setup(@TempDir File testDir) {
+  @BeforeAll
+  static void setup(@TempDir File testDir) {
     conf = new OzoneConfiguration();
     conf.set(HddsConfigKeys.OZONE_METADATA_DIRS, testDir.getAbsolutePath());
     conf.setInt(ScmConfigKeys.OZONE_DATANODE_PIPELINE_LIMIT, 1);
@@ -205,9 +205,10 @@ public class TestMiniOzoneCluster {
   @Test
   public void testDNstartAfterSCM() throws Exception {
     // Start a cluster with 3 DN
-    cluster = MiniOzoneCluster.newBuilder(conf)
-        .setNumDatanodes(3)
-        .build();
+    MiniOzoneCluster.Builder builder = MiniOzoneCluster.newBuilder(conf).setNumDatanodes(3);
+    // Clear storage paths inherited from earlier tests.
+    builder.prepareForNextBuild();
+    cluster = builder.build();
     cluster.waitForClusterToBeReady();
 
     // Stop the SCM
