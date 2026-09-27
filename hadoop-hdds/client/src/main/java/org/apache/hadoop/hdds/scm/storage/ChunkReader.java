@@ -19,7 +19,6 @@ package org.apache.hadoop.hdds.scm.storage;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.hdds.protocol.datanode.proto.ContainerProtos.ChunkInfo;
 import org.apache.ratis.util.function.CheckedFunction;
 
@@ -57,9 +56,9 @@ final class ChunkReader {
     final long adjustedOffset;
     final long adjustedLen;
     if (verifyChecksum) {
-      Pair<Long, Long> boundaries = computeChecksumBoundaries(chunkRelativePosition, toRead);
-      adjustedOffset = boundaries.getLeft();
-      adjustedLen = boundaries.getRight();
+      ChecksumBoundaries boundaries = computeChecksumBoundaries(chunkRelativePosition, toRead);
+      adjustedOffset = boundaries.offset;
+      adjustedLen = boundaries.length;
     } else {
       adjustedOffset = chunkRelativePosition;
       adjustedLen = toRead;
@@ -71,8 +70,7 @@ final class ChunkReader {
         .build();
   }
 
-  private Pair<Long, Long> computeChecksumBoundaries(long startByteIndex,
-      int dataLen) {
+  private ChecksumBoundaries computeChecksumBoundaries(long startByteIndex, int dataLen) {
 
     int bytesPerChecksum = chunkInfo.getChecksumData().getBytesPerChecksum();
     // index of the last byte to be read from chunk, inclusively.
@@ -83,7 +81,21 @@ final class ChunkReader {
     final long endIndex = ((endByteIndex / bytesPerChecksum) + 1)
         * bytesPerChecksum; // exclusive
     long adjustedChunkLen = Math.min(endIndex, length) - adjustedChunkOffset;
-    return Pair.of(adjustedChunkOffset, adjustedChunkLen);
+    return new ChecksumBoundaries(adjustedChunkOffset, adjustedChunkLen);
+  }
+
+  /**
+   * Represents a byte range (offset and length) expanded to align with
+   * checksum chunk boundaries required for verification.
+   */
+  private static final class ChecksumBoundaries {
+    private final long offset;
+    private final long length;
+
+    private ChecksumBoundaries(long offset, long length) {
+      this.offset = offset;
+      this.length = length;
+    }
   }
 
   private static int copyRange(ByteBuffer[] src, long skip, int toCopy, ByteBuffer dst) {
