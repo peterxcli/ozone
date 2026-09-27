@@ -159,17 +159,86 @@ public class StreamBlockInputStream extends BlockExtendedInputStream {
   }
 
   @Override
-  protected synchronized int readPositioned(long offset, ByteBuffer buffer) throws IOException {
+  protected int readPositioned(long offset, ByteBuffer buffer) throws IOException {
     checkOpen();
     if (offset >= blockLength) {
       return EOF;
     }
-    final long oldPosition = position;
+    final Set<DatanodeID> failedDatanodes = new HashSet<>();
+    int attempt = 0;
+    while (true) {
+      try {
+        return readRange(offset, buffer, failedDatanodes);
+      } catch (IOException ex) {
+        IOException cause = ConnectionFailureUtils.unwrapCause(ex);
+        if (!(cause instanceof StorageContainerException || isConnectivityIssue(cause)
+            || cause instanceof TimeoutIOException) || !shouldRetryRead(cause, retryPolicy, attempt++)) {
+          throw ex;
+        }
+        refreshBlockInfo(cause);
+      }
+    }
+  }
+
+  private int readRange(long offset, ByteBuffer destination, Set<DatanodeID> failedDatanodes) throws IOException {
+    final XceiverClientFactory factory;
+    final Pipeline pipeline;
+    final Token<OzoneBlockTokenIdentifier> token;
+    synchronized (this) {
+      checkOpen();
+      factory = xceiverClientFactory;
+      pipeline = pipelineRef.get();
+      token = tokenRef.get();
+    }
+    final XceiverClientSpi client = factory.acquireClientForReadData(pipeline);
+    StreamingReader reader = null;
+    boolean started = false;
     try {
-      seek(offset);
-      return readFully(buffer, false);
+      if (!(client instanceof XceiverClientGrpc)) {
+        throw new IOException("Expected a gRPC client for positioned streaming read: " + blockID);
+      }
+      XceiverClientGrpc grpc = (XceiverClientGrpc) client;
+      reader = new StreamingReader(grpc);
+      grpc.initStreamRead(blockID, reader, failedDatanodes);
+      started = true;
+      final int length = (int) Math.min(destination.remaining(), blockLength - offset);
+      grpc.streamRead(ContainerProtocolCalls.buildReadBlockCommandProto(
+          blockID, offset, length, responseDataSize, token, pipeline), reader.getResponse());
+      final ByteBuffer target = destination.duplicate();
+      target.limit(target.position() + length);
+      long positionInBlock = offset;
+      while (target.hasRemaining()) {
+        ReadBlockResponseProto response = reader.poll();
+        if (response == null) {
+          throw new EOFException("Incomplete positioned read of block " + blockID + " at " + positionInBlock);
+        }
+        ByteBuffer data = getByteBuffer(response, positionInBlock);
+        if (data == null || !data.hasRemaining()) {
+          throw new IOException("Unexpected response offset " + response.getOffset() + " for " + positionInBlock);
+        }
+        int toCopy = Math.min(data.remaining(), target.remaining());
+        data.limit(data.position() + toCopy);
+        target.put(data);
+        positionInBlock += toCopy;
+      }
+      destination.position(target.position());
+      return length;
+    } catch (IOException e) {
+      if (reader != null && reader.getResponse() != null) {
+        failedDatanodes.add(reader.getResponse().getDatanodeDetails().getID());
+      }
+      throw e;
     } finally {
-      seek(oldPosition);
+      try {
+        // initStreamRead releases its own permit when it cannot establish a stream.
+        if (started) {
+          closeReader(reader, "positioned read");
+        }
+      } finally {
+        if (client != null) {
+          factory.releaseClientForReadData(client, false);
+        }
+      }
     }
   }
 
@@ -299,8 +368,11 @@ public class StreamBlockInputStream extends BlockExtendedInputStream {
 
     final StreamingReader reader = streamingReader;
     streamingReader = null;
-    LOG.debug("{} closeReader for {}", getName(reader), reason);
+    closeReader(reader, reason);
+  }
 
+  private static void closeReader(StreamingReader reader, String reason) {
+    LOG.debug("{} closeReader for {}", reader, reason);
     reader.onCompleted();
 
     final StreamingReadResponse response = reader.getResponse();
@@ -353,7 +425,7 @@ public class StreamBlockInputStream extends BlockExtendedInputStream {
     while (streamingReader == null) {
       try {
         acquireClient();
-        final StreamingReader reader = new StreamingReader();
+        final StreamingReader reader = new StreamingReader(xceiverClient);
         LOG.debug("{}: new StreamingReader", getName(reader));
         xceiverClient.initStreamRead(blockID, reader, failedStreamingDatanodes);
         streamingReader = reader;
@@ -437,14 +509,8 @@ public class StreamBlockInputStream extends BlockExtendedInputStream {
     xceiverClientFactory = null;
   }
 
-  private void refreshBlockInfo(IOException cause) throws IOException {
+  private synchronized void refreshBlockInfo(IOException cause) throws IOException {
     refreshBlockInfo(cause, blockID, pipelineRef, tokenRef, refreshFunction);
-  }
-
-  private synchronized void releaseStreamResources() {
-    if (xceiverClient != null) {
-      xceiverClient.completeStreamRead();
-    }
   }
 
   @Override
@@ -506,6 +572,12 @@ public class StreamBlockInputStream extends BlockExtendedInputStream {
     private final CompletableFuture<Void> future = new CompletableFuture<>();
     private final AtomicBoolean semaphoreReleased = new AtomicBoolean(false);
     private final AtomicReference<StreamingReadResponse> response = new AtomicReference<>();
+
+    private final XceiverClientGrpc client;
+
+    StreamingReader(XceiverClientGrpc client) {
+      this.client = client;
+    }
 
     void checkError() throws IOException {
       if (future.isCompletedExceptionally()) {
@@ -584,7 +656,7 @@ public class StreamBlockInputStream extends BlockExtendedInputStream {
 
     private void releaseResources() {
       if (semaphoreReleased.compareAndSet(false, true)) {
-        releaseStreamResources();
+        client.completeStreamRead();
       }
     }
 
