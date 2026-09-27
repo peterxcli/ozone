@@ -32,11 +32,15 @@ import java.io.InputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileRange;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdds.client.DefaultReplicationConfig;
@@ -131,6 +135,28 @@ public abstract class TestOzoneFSInputStream implements NonHATests.TestCase {
           buffer.put(bytes);
         }
       });
+      assertEquals(123, stream.getPos());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testVectoredRead(boolean streaming) throws Exception {
+    OzoneConfiguration conf = new OzoneConfiguration(cluster().getConf());
+    conf.setBoolean("ozone.client.stream.readblock.enable", streaming);
+    try (FileSystem fs = FileSystem.newInstance(URI.create(uri), conf);
+         FSDataInputStream stream = fs.open(filePath)) {
+      stream.seek(123);
+      List<FileRange> ranges = Arrays.asList(FileRange.createFileRange(1024 * 1024 - 100, 4096),
+          FileRange.createFileRange(17, 321), FileRange.createFileRange(data.length - 8192, 4096));
+      stream.readVectored(ranges, ByteBuffer::allocateDirect);
+      for (FileRange range : ranges) {
+        ByteBuffer result = range.getData().get(30, TimeUnit.SECONDS);
+        byte[] actual = new byte[result.remaining()];
+        result.get(actual);
+        int offset = (int) range.getOffset();
+        assertArrayEquals(Arrays.copyOfRange(data, offset, offset + range.getLength()), actual);
+      }
       assertEquals(123, stream.getPos());
     }
   }

@@ -20,8 +20,12 @@ package org.apache.hadoop.fs.ozone;
 import static org.apache.hadoop.hdds.scm.storage.PositionedReadTestHelper.SOURCE_SIZE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -35,8 +39,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -45,6 +55,7 @@ import org.apache.hadoop.crypto.CryptoCodec;
 import org.apache.hadoop.crypto.CryptoInputStream;
 import org.apache.hadoop.crypto.Decryptor;
 import org.apache.hadoop.fs.ByteBufferPositionedReadable;
+import org.apache.hadoop.fs.FileRange;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Seekable;
 import org.apache.hadoop.fs.StreamCapabilities;
@@ -148,10 +159,148 @@ public class TestOzoneFSInputStream {
 
       assertTrue(capableOzoneFSInputStream.
           hasCapability(StreamCapabilities.READBYTEBUFFER));
+      assertTrue(capableOzoneFSInputStream.hasCapability(StreamCapabilities.VECTOREDIO));
     } finally {
       if (capableOzoneFSInputStream != null) {
         capableOzoneFSInputStream.close();
       }
+    }
+  }
+
+  @Test
+  @Timeout(20)
+  void vectoredReadsOverlapAndAllocateOnlyForActiveWorkers() throws Exception {
+    ExtendedInputStream input = mock(ExtendedInputStream.class);
+    CountDownLatch started = new CountDownLatch(4);
+    CountDownLatch proceed = new CountDownLatch(1);
+    CountDownLatch released = new CountDownLatch(1);
+    AtomicInteger allocations = new AtomicInteger();
+    when(input.read(anyLong(), any(ByteBuffer.class))).thenAnswer(inv -> {
+      started.countDown();
+      assertTrue(proceed.await(10, TimeUnit.SECONDS));
+      long offset = inv.getArgument(0);
+      ByteBuffer buffer = inv.getArgument(1);
+      int length = buffer.remaining();
+      for (int i = 0; i < length; i++) {
+        buffer.put((byte) (offset + i));
+      }
+      return length;
+    });
+    List<FileRange> ranges = new ArrayList<>();
+    for (int i = 0; i < 20; i++) {
+      ranges.add(FileRange.createFileRange(i * 8, 4));
+    }
+    FileSystem.Statistics statistics = new FileSystem.Statistics("vector");
+    try (CapableOzoneFSInputStream stream = new CapableOzoneFSInputStream(input, statistics)) {
+      stream.readVectored(ranges, length -> {
+        allocations.incrementAndGet();
+        return ByteBuffer.allocateDirect(length);
+      }, buffer -> released.countDown());
+      assertTrue(started.await(5, TimeUnit.SECONDS), "four reads must overlap");
+      assertEquals(4, allocations.get());
+      for (FileRange range : ranges) {
+        assertNotNull(range.getData());
+        assertFalse(range.getData().isDone());
+      }
+      // Cancellation while a read is active must return its allocated buffer.
+      ranges.get(0).getData().cancel(false);
+      proceed.countDown();
+      for (int i = 1; i < ranges.size(); i++) {
+        ByteBuffer data = ranges.get(i).getData().get(5, TimeUnit.SECONDS);
+        assertEquals(4, data.remaining());
+        for (int j = 0; j < 4; j++) {
+          assertEquals((byte) (i * 8 + j), data.get());
+        }
+      }
+      assertTrue(released.await(5, TimeUnit.SECONDS));
+      assertEquals(80, statistics.getBytesRead());
+    } finally {
+      proceed.countDown();
+    }
+  }
+
+  @Test
+  void vectoredReadsPreserveFallbackCursorAndReleaseFailedBuffers() throws Exception {
+    byte[] source = RandomUtils.secure().randomBytes(32);
+    for (IntFunction<ByteBuffer> allocate : BUFFER_CONSTRUCTORS) {
+      AtomicInteger released = new AtomicInteger();
+      FileRange success = FileRange.createFileRange(3, 4);
+      FileRange empty = FileRange.createFileRange(12, 0);
+      FileRange eof = FileRange.createFileRange(28, 8);
+      try (CapableOzoneFSInputStream stream = new CapableOzoneFSInputStream(
+          new SeekableOnlyInputStream(source), null)) {
+        stream.seek(17);
+        stream.readVectored(Arrays.asList(eof, empty, success), allocate, buffer -> {
+          released.incrementAndGet();
+          throw new IllegalStateException("release failed");
+        });
+        ByteBuffer data = success.getData().get(5, TimeUnit.SECONDS);
+        byte[] bytes = new byte[data.remaining()];
+        data.get(bytes);
+        assertArrayEquals(Arrays.copyOfRange(source, 3, 7), bytes);
+        assertEquals(0, empty.getData().get(5, TimeUnit.SECONDS).remaining());
+        ExecutionException error = assertThrows(ExecutionException.class, () -> eof.getData().get(5, TimeUnit.SECONDS));
+        assertTrue(error.getCause() instanceof EOFException);
+        assertEquals(1, error.getCause().getSuppressed().length);
+        assertEquals(1, released.get());
+        assertEquals(17, stream.getPos());
+      }
+    }
+  }
+
+  @Test
+  void vectoredReadsValidateBeforeSchedulingAndReportAllocationFailure() throws Exception {
+    try (CapableOzoneFSInputStream stream = new CapableOzoneFSInputStream(new NativePositionedInputStream(new byte[32]),
+        null)) {
+      assertThrows(IllegalArgumentException.class, () -> stream.readVectored(
+          Arrays.asList(FileRange.createFileRange(0, 4), FileRange.createFileRange(3, 4)), ByteBuffer::allocate));
+      assertThrows(EOFException.class, () -> stream.readVectored(
+          Collections.singletonList(FileRange.createFileRange(-1, 4)), ByteBuffer::allocate));
+      stream.readVectored(Collections.emptyList(), ByteBuffer::allocate);
+      FileRange failed = FileRange.createFileRange(0, 4);
+      FileRange success = FileRange.createFileRange(10, 2);
+      stream.readVectored(Arrays.asList(failed, success), length -> {
+        if (length == 4) {
+          throw new IllegalStateException("allocation failed");
+        }
+        return ByteBuffer.allocate(length);
+      });
+      assertThrows(ExecutionException.class, () -> failed.getData().get(5, TimeUnit.SECONDS));
+      assertEquals(2, success.getData().get(5, TimeUnit.SECONDS).remaining());
+    }
+  }
+
+  @Test
+  @Timeout(20)
+  void closingStreamFailsPendingVectoredRangesWithoutAllocatingBuffers() throws Exception {
+    CountDownLatch started = new CountDownLatch(4);
+    CountDownLatch proceed = new CountDownLatch(1);
+    AtomicInteger allocations = new AtomicInteger();
+    ExtendedInputStream input = mock(ExtendedInputStream.class);
+    when(input.read(anyLong(), any(ByteBuffer.class))).thenAnswer(inv -> {
+      started.countDown();
+      assertTrue(proceed.await(10, TimeUnit.SECONDS));
+      throw new IOException("Stream is closed");
+    });
+    List<FileRange> ranges = new ArrayList<>();
+    for (int i = 0; i < 12; i++) {
+      ranges.add(FileRange.createFileRange(i, 1));
+    }
+    try (CapableOzoneFSInputStream stream = new CapableOzoneFSInputStream(input, null)) {
+      stream.readVectored(ranges, length -> {
+        allocations.incrementAndGet();
+        return ByteBuffer.allocate(length);
+      });
+      assertTrue(started.await(5, TimeUnit.SECONDS));
+      stream.close();
+      proceed.countDown();
+      for (FileRange range : ranges) {
+        assertThrows(ExecutionException.class, () -> range.getData().get(5, TimeUnit.SECONDS));
+      }
+      assertEquals(4, allocations.get());
+      assertThrows(IOException.class, () -> stream.readVectored(ranges, ByteBuffer::allocate));
+    } finally {
+      proceed.countDown();
     }
   }
 
