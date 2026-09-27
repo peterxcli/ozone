@@ -125,7 +125,7 @@ public class TestOzoneFSInputStream {
   @Test
   public void readEmptyStreamToByteBuffer() throws IOException {
     for (IntFunction<ByteBuffer> constructor : BUFFER_CONSTRUCTORS) {
-      final OzoneFSInputStream subject = createTestSubject(new NativePositionedInputStream(new byte[0]));
+      final OzoneFSInputStream subject = createTestSubject(emptyStream());
       final ByteBuffer buf = constructor.apply(1);
 
       final int bytesRead = subject.read(buf);
