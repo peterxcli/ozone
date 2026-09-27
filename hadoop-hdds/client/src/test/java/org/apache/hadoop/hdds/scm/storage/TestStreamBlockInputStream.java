@@ -17,12 +17,16 @@
 
 package org.apache.hadoop.hdds.scm.storage;
 
+import static org.apache.hadoop.hdds.scm.storage.PositionedReadTestHelper.BUFFER_SIZE;
+import static org.apache.hadoop.hdds.scm.storage.PositionedReadTestHelper.SOURCE_SIZE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
@@ -33,10 +37,19 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -78,6 +91,95 @@ public class TestStreamBlockInputStream {
   private static final Function<BlockID, BlockLocationInfo> NO_REFRESH = b -> null;
 
   @Test
+  public void testPositionedReadsOverlapWithoutMovingCursor() throws Exception {
+    XceiverClientGrpc client = mock(XceiverClientGrpc.class);
+    XceiverClientFactory factory = mock(XceiverClientFactory.class);
+    when(factory.acquireClientForReadData(any())).thenReturn(client);
+    Map<StreamingReadResponse, StreamingReaderSpi> readers = new ConcurrentHashMap<>();
+    doAnswer(inv -> {
+      StreamingReaderSpi reader = inv.getArgument(1);
+      StreamingReadResponse response = new StreamingReadResponse(
+          MockDatanodeDetails.randomDatanodeDetails(), mock(ClientCallStreamObserver.class));
+      reader.setStreamingReadResponse(response);
+      readers.put(response, reader);
+      return null;
+    }).when(client).initStreamRead(any(), any(), any());
+    CountDownLatch started = new CountDownLatch(2);
+    doAnswer(inv -> {
+      ContainerCommandRequestProto request = inv.getArgument(0);
+      started.countDown();
+      assertTrue(started.await(5, TimeUnit.SECONDS), "positioned reads must overlap");
+      long offset = request.getReadBlock().getOffset();
+      assertEquals(2, request.getReadBlock().getLength(), "positioned reads must not request read-ahead");
+      StreamingReaderSpi reader = readers.get(inv.getArgument(1));
+      reader.onNext(buildResponseProto(new byte[] {(byte) offset}, offset));
+      reader.onNext(buildResponseProto(new byte[] {(byte) (offset + 1)}, offset + 1));
+      reader.onCompleted();
+      return null;
+    }).when(client).streamRead(any(), any());
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try (StreamBlockInputStream stream = new StreamBlockInputStream(new BlockID(1, 22), 100,
+        mockStandalonePipeline(), null, factory, NO_REFRESH, newStreamReadConfig())) {
+      stream.seek(50);
+      Future<?> first = executor.submit(() -> {
+        ByteBuffer buffer = ByteBuffer.allocate(2);
+        stream.readFully(10, buffer);
+        assertArrayEquals(new byte[] {10, 11}, buffer.array());
+        return null;
+      });
+      Future<?> second = executor.submit(() -> {
+        byte[] buffer = new byte[2];
+        stream.readFully(20, buffer);
+        assertArrayEquals(new byte[] {20, 21}, buffer);
+        return null;
+      });
+      first.get(10, TimeUnit.SECONDS);
+      second.get(10, TimeUnit.SECONDS);
+      assertEquals(50, stream.getPos());
+    } finally {
+      executor.shutdownNow();
+    }
+    verify(factory, times(2)).releaseClientForReadData(client, false);
+    verify(client, times(2)).completeStreamRead();
+    for (StreamingReadResponse response : readers.keySet()) {
+      verify(response.getRequestObserver()).onCompleted();
+    }
+  }
+
+  @Test
+  public void testIncompletePositionedReadReleasesResources() throws Exception {
+    ClientCallStreamObserver<ContainerCommandRequestProto> observer = mock(ClientCallStreamObserver.class);
+    XceiverClientGrpc client = mockCapturingStreamingReadClient(observer, StreamingReaderSpi::onCompleted);
+    XceiverClientFactory factory = mock(XceiverClientFactory.class);
+    when(factory.acquireClientForReadData(any())).thenReturn(client);
+    try (StreamBlockInputStream stream = new StreamBlockInputStream(new BlockID(1, 23), 100,
+        mockStandalonePipeline(), null, factory, NO_REFRESH, newStreamReadConfig())) {
+      stream.seek(50);
+      ByteBuffer buffer = ByteBuffer.allocate(2);
+      assertThrows(EOFException.class, () -> stream.readFully(10, buffer));
+      assertEquals(0, buffer.position());
+      assertEquals(50, stream.getPos());
+    }
+    verify(factory).releaseClientForReadData(client, false);
+    verify(client).completeStreamRead();
+    verify(observer).onCompleted();
+  }
+
+  @Test
+  public void testFailedPositionedReadInitializationReleasesClient() throws Exception {
+    XceiverClientGrpc client = mock(XceiverClientGrpc.class);
+    doThrow(new IOException("initialization failed")).when(client).initStreamRead(any(), any(), any());
+    XceiverClientFactory factory = mock(XceiverClientFactory.class);
+    when(factory.acquireClientForReadData(any())).thenReturn(client);
+    try (StreamBlockInputStream stream = new StreamBlockInputStream(new BlockID(1, 24), 100,
+        mockStandalonePipeline(), null, factory, NO_REFRESH, newStreamReadConfig())) {
+      assertThrows(IOException.class, () -> stream.readFully(10, ByteBuffer.allocate(2)));
+    }
+    verify(factory).releaseClientForReadData(client, false);
+    verify(client, never()).completeStreamRead();
+  }
+
+  @Test
   public void testCustomStreamReadConfigIsApplied() throws Exception {
     // Arrange: create a config with non-default values
     OzoneClientConfig clientConfig = newStreamReadConfig();
@@ -104,6 +206,92 @@ public class TestStreamBlockInputStream {
       assertEquals(64L << 20, sbis.getPreReadSize());
       assertEquals(2 << 20, sbis.getResponseDataSize());
       assertEquals(STREAM_READ_TIMEOUT, sbis.getReadTimeout());
+    }
+  }
+
+  @Test
+  public void testPositionedReadIsStateless() throws Exception {
+    byte[] data = new byte[100];
+    for (int i = 0; i < data.length; i++) {
+      data[i] = (byte) i;
+    }
+    try (StreamBlockInputStream sbis = newStreamForData(data)) {
+      byte[] seq = new byte[10];
+      assertEquals(10, sbis.read(seq, 0, 10));
+      assertArrayEquals(Arrays.copyOfRange(data, 0, 10), seq);
+      long posBeforePositionedRead = sbis.getPos();
+      assertEquals(10, posBeforePositionedRead);
+
+      ByteBuffer dst = ByteBuffer.allocate(15);
+      int read = sbis.readPositioned(50, dst);
+      assertEquals(15, read);
+      dst.flip();
+      byte[] positioned = new byte[15];
+      dst.get(positioned);
+      assertArrayEquals(Arrays.copyOfRange(data, 50, 65), positioned);
+      assertEquals(posBeforePositionedRead, sbis.getPos());
+
+      byte[] seq2 = new byte[10];
+      assertEquals(10, sbis.read(seq2, 0, 10));
+      assertArrayEquals(Arrays.copyOfRange(data, 10, 20), seq2);
+    }
+  }
+
+  @Test
+  public void testPositionedReadAtEof() throws Exception {
+    byte[] data = new byte[100];
+    try (StreamBlockInputStream sbis = newStreamForData(data)) {
+      ByteBuffer dst = ByteBuffer.allocate(10);
+      assertEquals(-1, sbis.readPositioned(data.length, dst));
+      assertEquals(-1, sbis.readPositioned(data.length + 1, dst));
+    }
+  }
+
+  @Test
+  public void testPositionedReadDoesNotReleasePermitWhenInitStreamReadFails() throws Exception {
+    OzoneClientConfig clientConfig = newStreamReadConfig();
+    clientConfig.setMaxReadRetryCount(0);
+    BlockID blockID = new BlockID(1L, 18L);
+    Pipeline pipeline = mockStandalonePipeline();
+    ClientCallStreamObserver<ContainerCommandRequestProto> requestObserver =
+        mock(ClientCallStreamObserver.class);
+    StreamingReadResponse streamingReadResponse = mock(StreamingReadResponse.class);
+    when(streamingReadResponse.getRequestObserver()).thenReturn(requestObserver);
+
+    XceiverClientGrpc xceiverClient = mock(XceiverClientGrpc.class);
+    doAnswer(invocation -> {
+      StreamingReaderSpi reader = invocation.getArgument(1);
+      reader.setStreamingReadResponse(streamingReadResponse);
+      throw new IOException("initStreamRead failed");
+    }).when(xceiverClient).initStreamRead(any(BlockID.class), any(), any());
+
+    XceiverClientFactory xceiverClientFactory = mock(XceiverClientFactory.class);
+    when(xceiverClientFactory.acquireClientForReadData(any(Pipeline.class)))
+        .thenReturn(xceiverClient);
+    doNothing().when(xceiverClientFactory).releaseClientForReadData(any(), anyBoolean());
+
+    try (StreamBlockInputStream sbis = new StreamBlockInputStream(
+        blockID, 64L, pipeline, null, xceiverClientFactory, NO_REFRESH, clientConfig)) {
+      ByteBuffer dst = ByteBuffer.allocate(16);
+      assertThrows(IOException.class, () -> sbis.readPositioned(0, dst));
+    }
+
+    verify(xceiverClient, never()).completeStreamRead();
+    verify(requestObserver, times(1)).onCompleted();
+  }
+
+  @Test
+  public void testConcurrentPositionedRead() throws Exception {
+    byte[] data = TestChunkInputStream.generateRandomData(SOURCE_SIZE);
+    try (StreamBlockInputStream sbis = newStreamForData(data)) {
+      PositionedReadTestHelper.runConcurrentPositionedReads(data,
+          (offset, buf) -> {
+            int read = sbis.readPositioned(offset, buf);
+            if (read != BUFFER_SIZE) {
+              throw new AssertionError("expected " + BUFFER_SIZE + " bytes at " + offset
+                  + " but read " + read);
+            }
+          });
     }
   }
 
@@ -268,6 +456,55 @@ public class TestStreamBlockInputStream {
       assertDoesNotThrow(() -> sbis.read(buf), "should not NPE when onCompleted fires before poll");
       assertEquals(data.length, buf.position(), "all bytes should be read");
     }
+  }
+
+  private StreamBlockInputStream newStreamForData(byte[] data) throws Exception {
+    BlockID blockID = new BlockID(1L, 17L);
+    Pipeline pipeline = mockStandalonePipeline();
+    ClientCallStreamObserver<ContainerCommandRequestProto> requestObserver =
+        mock(ClientCallStreamObserver.class);
+    XceiverClientGrpc xceiverClient = mockOffsetAwareStreamingReadClient(data, requestObserver);
+    XceiverClientFactory xceiverClientFactory = mock(XceiverClientFactory.class);
+    when(xceiverClientFactory.acquireClientForReadData(any(Pipeline.class)))
+        .thenReturn(xceiverClient);
+    doNothing().when(xceiverClientFactory).releaseClientForReadData(any(), anyBoolean());
+    return new StreamBlockInputStream(blockID, data.length, pipeline, null,
+        xceiverClientFactory, NO_REFRESH, newStreamReadConfig());
+  }
+
+  private XceiverClientGrpc mockOffsetAwareStreamingReadClient(byte[] data,
+      ClientCallStreamObserver<ContainerCommandRequestProto> requestObserver) throws Exception {
+    XceiverClientGrpc xceiverClient = mock(XceiverClientGrpc.class);
+    Map<StreamingReadResponse, StreamingReaderSpi> readersByResponse = new ConcurrentHashMap<>();
+    doAnswer(invocation -> {
+      StreamingReaderSpi reader = invocation.getArgument(1);
+      StreamingReadResponse response = mock(StreamingReadResponse.class);
+      when(response.getRequestObserver()).thenReturn(requestObserver);
+      reader.setStreamingReadResponse(response);
+      readersByResponse.put(response, reader);
+      return null;
+    }).when(xceiverClient).initStreamRead(any(BlockID.class), any(), any());
+    doAnswer(invocation -> {
+      ContainerCommandRequestProto request = invocation.getArgument(0);
+      StreamingReadResponse response = invocation.getArgument(1);
+      StreamingReaderSpi reader = readersByResponse.get(response);
+      long offset = request.getReadBlock().getOffset();
+      long length = request.getReadBlock().getLength();
+      int start = (int) offset;
+      int end = (int) Math.min(data.length, offset + length);
+      if (start >= data.length) {
+        reader.onCompleted();
+        return null;
+      }
+      byte[] slice = Arrays.copyOfRange(data, start, end);
+      reader.onNext(buildResponseProto(slice, offset));
+      if (reader.getClass().getSimpleName().equals("OneShotReader") || end >= data.length) {
+        reader.onCompleted();
+      }
+      return null;
+    }).when(xceiverClient).streamRead(any(ContainerCommandRequestProto.class),
+        any(StreamingReadResponse.class));
+    return xceiverClient;
   }
 
   private OzoneClientConfig newStreamReadConfig() {
