@@ -189,7 +189,8 @@ public class StreamBlockInputStream extends BlockExtendedInputStream {
    * @param dst the buffer to read into.
    * @return the number of bytes copied into {@code dst}, or -1 if no byte could be read.
    */
-  int readPositioned(long blockOffset, ByteBuffer dst) throws IOException {
+  @Override
+  protected int readPositioned(long blockOffset, ByteBuffer dst) throws IOException {
     if (!dst.hasRemaining()) {
       return 0;
     }
