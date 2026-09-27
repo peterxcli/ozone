@@ -64,9 +64,10 @@ final class CapableOzoneFSInputStream extends OzoneFSInputStream
     switch (StringUtils.toLowerCase(capability)) {
     case StreamCapabilities.READBYTEBUFFER:
     case StreamCapabilities.UNBUFFER:
+      return true;
     case StreamCapabilities.PREADBYTEBUFFER:
     case StreamCapabilities.VECTOREDIO:
-      return true;
+      return supportsPositionedRead();
     default:
       return false;
     }
@@ -90,6 +91,9 @@ final class CapableOzoneFSInputStream extends OzoneFSInputStream
     requireNonNull(release, "release");
     if (closed) {
       throw new IOException("Stream is closed");
+    }
+    if (!supportsPositionedRead()) {
+      throw new UnsupportedOperationException("Vectored reads require positioned-read support");
     }
     List<? extends FileRange> sorted = Arrays.asList(VectoredReadUtils.sortRanges(ranges));
     VectoredReadUtils.validateVectoredReadRanges(sorted);

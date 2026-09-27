@@ -59,7 +59,6 @@ import org.apache.hadoop.fs.FileRange;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Seekable;
 import org.apache.hadoop.fs.StreamCapabilities;
-import org.apache.hadoop.hdds.scm.storage.ByteReaderStrategy;
 import org.apache.hadoop.hdds.scm.storage.ExtendedInputStream;
 import org.apache.hadoop.hdds.scm.storage.PositionedReadTestHelper;
 import org.apache.hadoop.ozone.client.io.KeyInputStream;
@@ -126,7 +125,7 @@ public class TestOzoneFSInputStream {
   @Test
   public void readEmptyStreamToByteBuffer() throws IOException {
     for (IntFunction<ByteBuffer> constructor : BUFFER_CONSTRUCTORS) {
-      final OzoneFSInputStream subject = createTestSubject(emptyStream());
+      final OzoneFSInputStream subject = createTestSubject(new NativePositionedInputStream(new byte[0]));
       final ByteBuffer buf = constructor.apply(1);
 
       final int bytesRead = subject.read(buf);
@@ -151,7 +150,7 @@ public class TestOzoneFSInputStream {
 
   @Test
   public void testStreamCapability() throws IOException {
-    final OzoneFSInputStream subject = createTestSubject(emptyStream());
+    final OzoneFSInputStream subject = createTestSubject(new NativePositionedInputStream(new byte[0]));
     CapableOzoneFSInputStream capableOzoneFSInputStream = null;
     try {
       capableOzoneFSInputStream = new CapableOzoneFSInputStream(subject,
@@ -171,6 +170,7 @@ public class TestOzoneFSInputStream {
   @Timeout(20)
   void vectoredReadsOverlapAndAllocateOnlyForActiveWorkers() throws Exception {
     ExtendedInputStream input = mock(ExtendedInputStream.class);
+    when(input.hasCapability(StreamCapabilities.PREADBYTEBUFFER)).thenReturn(true);
     CountDownLatch started = new CountDownLatch(4);
     CountDownLatch proceed = new CountDownLatch(1);
     CountDownLatch released = new CountDownLatch(1);
@@ -220,7 +220,7 @@ public class TestOzoneFSInputStream {
   }
 
   @Test
-  void vectoredReadsPreserveFallbackCursorAndReleaseFailedBuffers() throws Exception {
+  void vectoredReadsPreserveCursorAndReleaseFailedBuffers() throws Exception {
     byte[] source = RandomUtils.secure().randomBytes(32);
     for (IntFunction<ByteBuffer> allocate : BUFFER_CONSTRUCTORS) {
       AtomicInteger released = new AtomicInteger();
@@ -228,7 +228,7 @@ public class TestOzoneFSInputStream {
       FileRange empty = FileRange.createFileRange(12, 0);
       FileRange eof = FileRange.createFileRange(28, 8);
       try (CapableOzoneFSInputStream stream = new CapableOzoneFSInputStream(
-          new SeekableOnlyInputStream(source), null)) {
+          new NativePositionedInputStream(source), null)) {
         stream.seek(17);
         stream.readVectored(Arrays.asList(eof, empty, success), allocate, buffer -> {
           released.incrementAndGet();
@@ -277,6 +277,7 @@ public class TestOzoneFSInputStream {
     CountDownLatch proceed = new CountDownLatch(1);
     AtomicInteger allocations = new AtomicInteger();
     ExtendedInputStream input = mock(ExtendedInputStream.class);
+    when(input.hasCapability(StreamCapabilities.PREADBYTEBUFFER)).thenReturn(true);
     when(input.read(anyLong(), any(ByteBuffer.class))).thenAnswer(inv -> {
       started.countDown();
       assertTrue(proceed.await(10, TimeUnit.SECONDS));
@@ -349,95 +350,37 @@ public class TestOzoneFSInputStream {
   }
 
   @Test
-  public void testByteBufferPositionedReadNegativePositionThrows() throws Exception {
-    // read(long, ByteBuffer) must throw EOFException for negative positions,
-    // aligning with the byte-array PositionedReadable behaviour.
-    final byte[] source = RandomUtils.secure().randomBytes(SOURCE_SIZE);
-    final InterleavingSeekableInputStream underlying =
-        new InterleavingSeekableInputStream(source);
-    try (OzoneFSInputStream subject = new OzoneFSInputStream(underlying,
-        new FileSystem.Statistics("test"))) {
-      ByteBuffer buf = ByteBuffer.allocate(16);
-      assertThrows(EOFException.class, () -> subject.read(-1L, buf));
+  void cursorOnlyStreamsDoNotEmulatePositionedReads() throws Exception {
+    byte[] source = RandomUtils.secure().randomBytes(32);
+    try (CapableOzoneFSInputStream fs = new CapableOzoneFSInputStream(new SeekableOnlyInputStream(source), null);
+         OzoneInputStream client = new OzoneInputStream(new SeekableOnlyInputStream(source))) {
+      assertFalse(fs.hasCapability(StreamCapabilities.PREADBYTEBUFFER));
+      assertFalse(fs.hasCapability(StreamCapabilities.VECTOREDIO));
+      assertThrows(UnsupportedOperationException.class, () -> fs.readVectored(
+          Collections.singletonList(FileRange.createFileRange(0, 1)), ByteBuffer::allocate));
+      assertFalse(client.hasCapability(StreamCapabilities.PREADBYTEBUFFER));
+      assertThrows(EOFException.class, () -> fs.read(-1, ByteBuffer.allocate(1)));
+      assertThrows(UnsupportedOperationException.class, () -> fs.read(0, ByteBuffer.allocate(1)));
+      assertThrows(UnsupportedOperationException.class, () -> client.read(0, ByteBuffer.allocate(1)));
+      assertEquals(0, fs.getPos());
+      assertEquals(0, client.getPos());
+      assertEquals(Byte.toUnsignedInt(source[0]), fs.read());
+      assertEquals(Byte.toUnsignedInt(source[0]), client.read());
     }
   }
 
   @Test
-  @Timeout(value = 30)
-  public void testByteArrayFallbackWorksForSeekableOnlyStream() throws Exception {
-    // Regression: the old routing through read(long, ByteBuffer) would cast to
-    // ByteBufferReadable in readAtPositionSeekRestore and throw ClassCastException
-    // for a stream that only implements Seekable (not ByteBufferReadable).
-    final byte[] source = RandomUtils.secure().randomBytes(SOURCE_SIZE);
-    final SeekableOnlyInputStream underlying = new SeekableOnlyInputStream(source);
-    try (OzoneFSInputStream subject = new OzoneFSInputStream(underlying,
-        new FileSystem.Statistics("test"))) {
-      PositionedReadTestHelper.runConcurrentPositionedReads(source, (offset, buf) -> {
-        byte[] arr = new byte[buf.remaining()];
-        subject.readFully(offset, arr);
-        buf.put(arr);
-      });
-    }
-  }
-
-  @Test
-  @Timeout(value = 30)
-  public void testConcurrentPositionedRead() throws Exception {
-    final byte[] source = RandomUtils.secure().randomBytes(SOURCE_SIZE);
-    final InterleavingSeekableInputStream underlying =
-        new InterleavingSeekableInputStream(source);
-    try (OzoneFSInputStream subject = new OzoneFSInputStream(underlying,
-        new FileSystem.Statistics("test"))) {
-      PositionedReadTestHelper.runConcurrentPositionedReads(source,
-          (offset, buf) -> subject.readFully(offset, buf));
-    }
-  }
-
-  @Test
-  @Timeout(value = 30)
-  public void testConcurrentPositionedReadEcFallback() throws Exception {
-    final byte[] source = RandomUtils.secure().randomBytes(SOURCE_SIZE);
-    final EcInterleavingInputStream underlying =
-        new EcInterleavingInputStream(source);
-    try (OzoneFSInputStream subject = new OzoneFSInputStream(underlying,
-        new FileSystem.Statistics("test"))) {
-      PositionedReadTestHelper.runConcurrentPositionedReads(source,
-          (offset, buf) -> subject.readFully(offset, buf));
-    }
-  }
-
-  @Test
-  @Timeout(value = 30)
-  public void testConcurrentByteArrayPositionedReadEcFallback() throws Exception {
-    final byte[] source = RandomUtils.secure().randomBytes(SOURCE_SIZE);
-    final EcInterleavingInputStream underlying =
-        new EcInterleavingInputStream(source);
-    try (OzoneFSInputStream subject = new OzoneFSInputStream(underlying,
-        new FileSystem.Statistics("test"))) {
-      PositionedReadTestHelper.runConcurrentPositionedReads(source, (offset, buf) -> {
-        byte[] arr = new byte[buf.remaining()];
-        subject.readFully(offset, arr);
-        buf.put(arr);
-      });
-    }
-  }
-
-  @Test
-  @Timeout(value = 30)
-  public void testConcurrentMixedApiEcFallback() throws Exception {
-    // ByteBuffer and byte-array callers share positionedReadLock; verify no interleaving.
-    final byte[] source = RandomUtils.secure().randomBytes(SOURCE_SIZE);
-    final EcInterleavingInputStream underlying =
-        new EcInterleavingInputStream(source);
-    try (OzoneFSInputStream subject = new OzoneFSInputStream(underlying,
-        new FileSystem.Statistics("test"))) {
-      PositionedReadTestHelper.runConcurrentPositionedReads(source, (offset, buf) -> {
+  @Timeout(30)
+  void concurrentPositionedReadsThroughWrappers() throws Exception {
+    byte[] source = RandomUtils.secure().randomBytes(SOURCE_SIZE);
+    try (OzoneFSInputStream stream = createTestSubject(new OzoneInputStream(new NativePositionedInputStream(source)))) {
+      PositionedReadTestHelper.runConcurrentPositionedReads(source, (offset, buffer) -> {
         if ((offset & 1) == 0) {
-          subject.readFully(offset, buf);
+          stream.readFully(offset, buffer);
         } else {
-          byte[] arr = new byte[buf.remaining()];
-          subject.readFully(offset, arr);
-          buf.put(arr);
+          byte[] bytes = new byte[buffer.remaining()];
+          stream.readFully(offset, bytes);
+          buffer.put(bytes);
         }
       });
     }
@@ -446,10 +389,12 @@ public class TestOzoneFSInputStream {
   @Test
   void positionedReadDelegatesThroughWrappersAndCountsBytesOnce() throws Exception {
     byte[] source = RandomUtils.secure().randomBytes(32);
-    for (boolean nativeRead : new boolean[] {false, true}) {
+    for (boolean wrapped : new boolean[] {false, true}) {
       FileSystem.Statistics statistics = new FileSystem.Statistics("test");
-      InputStream input = nativeRead ? new OzoneInputStream(new NativePositionedInputStream(source))
-          : new SeekableOnlyInputStream(source);
+      InputStream input = new NativePositionedInputStream(source);
+      if (wrapped) {
+        input = new OzoneInputStream(input);
+      }
       try (OzoneFSInputStream stream = new OzoneFSInputStream(input, statistics)) {
         byte[] result = new byte[12];
         stream.readFully(3, result, 2, 7);
@@ -467,9 +412,24 @@ public class TestOzoneFSInputStream {
   }
 
   private static final class NativePositionedInputStream extends ByteArrayInputStream
-      implements ByteBufferPositionedReadable {
+      implements ByteBufferPositionedReadable, Seekable {
     private NativePositionedInputStream(byte[] data) {
       super(data);
+    }
+
+    @Override
+    public void seek(long offset) {
+      pos = (int) offset;
+    }
+
+    @Override
+    public long getPos() {
+      return pos;
+    }
+
+    @Override
+    public boolean seekToNewSource(long targetPos) {
+      return false;
     }
 
     @Override
@@ -491,97 +451,6 @@ public class TestOzoneFSInputStream {
     }
   }
 
-  /**
-   * Mimics KeyInputStream synchronized per-operation seek/read where multi-steps
-   * positioned reads must still be serialized at the FS layer.
-   */
-  private static final class InterleavingSeekableInputStream extends InputStream
-      implements Seekable, org.apache.hadoop.fs.ByteBufferReadable {
-
-    private final InterleavingReadState readState;
-
-    private InterleavingSeekableInputStream(byte[] data) {
-      this.readState = new InterleavingReadState(data);
-    }
-
-    @Override
-    public synchronized void seek(long p) {
-      readState.seek(p);
-    }
-
-    @Override
-    public synchronized long getPos() {
-      return readState.getPos();
-    }
-
-    @Override
-    public synchronized boolean seekToNewSource(long targetPos) {
-      return false;
-    }
-
-    @Override
-    public int read() {
-      return -1;
-    }
-
-    @Override
-    public synchronized int read(ByteBuffer buf) {
-      return readState.read(buf);
-    }
-  }
-
-  /**
-   * Mimics an erasure-coded key stream using ExtendedInputStream's synchronized positioned-read fallback.
-   */
-  private static final class EcInterleavingInputStream extends ExtendedInputStream {
-
-    private final InterleavingReadState readState;
-
-    private EcInterleavingInputStream(byte[] data) {
-      this.readState = new InterleavingReadState(data);
-    }
-
-    @Override
-    protected int readWithStrategy(ByteReaderStrategy strategy) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public synchronized void seek(long p) {
-      readState.seek(p);
-    }
-
-    @Override
-    public synchronized long getPos() {
-      return readState.getPos();
-    }
-
-    @Override
-    public synchronized boolean seekToNewSource(long targetPos) {
-      return false;
-    }
-
-    @Override
-    public synchronized int read(ByteBuffer buf) {
-      return readState.read(buf);
-    }
-
-    @Override
-    public synchronized int read(byte[] b, int off, int len) {
-      return readState.read(b, off, len);
-    }
-
-    @Override
-    public void unbuffer() {
-      return;
-    }
-  }
-
-  /**
-   * A Seekable stream that does NOT implement ByteBufferReadable. Used to verify
-   * that the byte-array positioned-read fallback uses read(byte[]) rather than
-   * casting to ByteBufferReadable (which would throw ClassCastException).
-   */
   private static final class SeekableOnlyInputStream extends InputStream
       implements Seekable {
 
@@ -626,60 +495,6 @@ public class TestOzoneFSInputStream {
     @Override
     public boolean seekToNewSource(long targetPos) {
       return false;
-    }
-  }
-
-  private static final class InterleavingReadState {
-    private final byte[] data;
-    private long pos;
-    private final ThreadLocal<Long> expectedReadPos = new ThreadLocal<>();
-
-    private InterleavingReadState(byte[] data) {
-      this.data = data;
-    }
-
-    private void seek(long p) {
-      pos = p;
-      expectedReadPos.set(p);
-    }
-
-    private long getPos() {
-      return pos;
-    }
-
-    private int read(ByteBuffer buf) {
-      Long expected = expectedReadPos.get();
-      if (expected != null && pos != expected) {
-        int len = buf.remaining();
-        for (int i = 0; i < len; i++) {
-          buf.put(CORRUPT_BYTE);
-        }
-        return len;
-      }
-      int toRead = Math.min(buf.remaining(), data.length - (int) pos);
-      if (toRead <= 0) {
-        return -1;
-      }
-      buf.put(data, (int) pos, toRead);
-      pos += toRead;
-      expectedReadPos.remove();
-      return toRead;
-    }
-
-    private int read(byte[] b, int off, int len) {
-      Long expected = expectedReadPos.get();
-      if (expected != null && pos != expected) {
-        java.util.Arrays.fill(b, off, off + len, CORRUPT_BYTE);
-        return len;
-      }
-      int toRead = Math.min(len, data.length - (int) pos);
-      if (toRead <= 0) {
-        return -1;
-      }
-      System.arraycopy(data, (int) pos, b, off, toRead);
-      pos += toRead;
-      expectedReadPos.remove();
-      return toRead;
     }
   }
 

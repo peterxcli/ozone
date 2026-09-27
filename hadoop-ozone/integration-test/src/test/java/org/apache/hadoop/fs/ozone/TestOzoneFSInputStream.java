@@ -59,6 +59,7 @@ import org.apache.hadoop.ozone.om.helpers.BucketLayout;
 import org.apache.ozone.test.NonHATests;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -118,6 +119,20 @@ public abstract class TestOzoneFSInputStream implements NonHATests.TestCase {
     closeQuietly(client, ecFs);
   }
 
+  @Test
+  void testConcurrentECPositionedRead() throws Exception {
+    Path path = new Path("/concurrent-ec-reads");
+    byte[] expected = Arrays.copyOf(data, 7 * 1024 * 1024 + 103);
+    try (FSDataOutputStream output = ecFs.create(path)) {
+      output.write(expected);
+    }
+    try (FSDataInputStream stream = ecFs.open(path)) {
+      stream.seek(123);
+      PositionedReadTestHelper.runConcurrentPositionedReads(expected, stream::readFully);
+      assertEquals(123, stream.getPos());
+    }
+  }
+
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
   void testConcurrentPositionedRead(boolean streaming) throws Exception {
@@ -135,6 +150,28 @@ public abstract class TestOzoneFSInputStream implements NonHATests.TestCase {
           buffer.put(bytes);
         }
       });
+      assertEquals(123, stream.getPos());
+    }
+  }
+
+  @Test
+  void testECVectoredRead() throws Exception {
+    Path path = new Path("/vectored-ec-reads");
+    try (FSDataOutputStream output = ecFs.create(path)) {
+      output.write(data);
+    }
+    try (FSDataInputStream stream = ecFs.open(path)) {
+      stream.seek(123);
+      List<FileRange> ranges = Arrays.asList(FileRange.createFileRange(1024 * 1024 - 37, 4096),
+          FileRange.createFileRange(3 * 1024 * 1024 - 29, 8192), FileRange.createFileRange(data.length - 5000, 5000));
+      stream.readVectored(ranges, ByteBuffer::allocateDirect);
+      for (FileRange range : ranges) {
+        ByteBuffer result = range.getData().get(30, TimeUnit.SECONDS);
+        byte[] actual = new byte[result.remaining()];
+        result.get(actual);
+        int offset = (int) range.getOffset();
+        assertArrayEquals(Arrays.copyOfRange(data, offset, offset + range.getLength()), actual);
+      }
       assertEquals(123, stream.getPos());
     }
   }
