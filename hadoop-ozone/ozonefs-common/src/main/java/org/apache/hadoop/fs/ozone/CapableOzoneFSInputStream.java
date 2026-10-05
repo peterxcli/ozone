@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
+import org.apache.hadoop.fs.ByteBufferPositionedReadable;
 import org.apache.hadoop.fs.FileRange;
 import org.apache.hadoop.fs.FileSystem.Statistics;
 import org.apache.hadoop.fs.StreamCapabilities;
@@ -67,7 +68,7 @@ final class CapableOzoneFSInputStream extends OzoneFSInputStream
       return true;
     case StreamCapabilities.PREADBYTEBUFFER:
     case StreamCapabilities.VECTOREDIO:
-      return supportsPositionedRead();
+      return getWrappedInputStream() instanceof ByteBufferPositionedReadable;
     default:
       return false;
     }
@@ -92,7 +93,7 @@ final class CapableOzoneFSInputStream extends OzoneFSInputStream
     if (closed) {
       throw new IOException("Stream is closed");
     }
-    if (!supportsPositionedRead()) {
+    if (!hasCapability(StreamCapabilities.VECTOREDIO)) {
       throw new UnsupportedOperationException("Vectored reads require positioned-read support");
     }
     List<? extends FileRange> sorted = Arrays.asList(VectoredReadUtils.sortRanges(ranges));
