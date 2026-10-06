@@ -303,8 +303,6 @@ public class ChunkInputStream extends InputStream
 
   /**
    * Acquire new client if previous one was released.
-   *
-   * @return the held client after ensuring it is acquired
    */
   protected synchronized void acquireClient() throws IOException {
     if (xceiverClientFactory != null && xceiverClient == null) {
