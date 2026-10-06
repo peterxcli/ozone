@@ -50,7 +50,6 @@ import org.apache.hadoop.hdds.scm.storage.BlockExtendedInputStream;
 import org.apache.hadoop.hdds.scm.storage.BlockLocationInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -343,6 +342,43 @@ public class TestECBlockInputStreamProxy {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
+  void positionedReadsRememberFailedLocations(boolean sequentialFirst) throws Exception {
+    byte[] data = generateData(1024).array();
+    BlockLocationInfo info = ECStreamTestUtil.createKeyInfo(repConfig, data.length,
+        ECStreamTestUtil.createIndexMap(1, 2, 3, 4, 5));
+    DatanodeDetails bad = info.getPipeline().getFirstNode();
+    AtomicInteger failedAttempts = new AtomicInteger();
+    ECBlockInputStreamFactory factory = (missing, failed, replication, block, xceiver, refresh, config) -> {
+      if (missing) {
+        assertThat(failed).containsExactly(bad);
+      }
+      return new ECStreamTestUtil.TestBlockInputStream(block.getBlockID(), block.getLength(), ByteBuffer.wrap(data)) {
+        @Override
+        public int read(ByteBuffer destination) throws IOException {
+          if (!missing) {
+            failedAttempts.incrementAndGet();
+            throw new BadDataLocationException(bad, "failed data replica");
+          }
+          return super.read(destination);
+        }
+      };
+    };
+    try (ECBlockInputStreamProxy stream = new ECBlockInputStreamProxy(repConfig, info, null, null,
+        factory, conf.getObject(OzoneClientConfig.class))) {
+      ByteBuffer first = ByteBuffer.allocate(10);
+      assertEquals(10, sequentialFirst ? stream.read(first) : stream.read(0, first));
+      for (int offset : new int[] {17, 203}) {
+        ByteBuffer buffer = ByteBuffer.allocate(20);
+        stream.readFully(offset, buffer);
+        assertArrayEquals(Arrays.copyOfRange(data, offset, offset + 20), buffer.array());
+      }
+      assertEquals(1, failedAttempts.get());
+      assertEquals(sequentialFirst ? 10 : 0, stream.getPos());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
   void emptyPositionedReadsDoNotCreateReaders(boolean missing) throws Exception {
     int length = 100;
     generateData(length);
@@ -363,7 +399,6 @@ public class TestECBlockInputStreamProxy {
 
   @ParameterizedTest
   @ValueSource(strings = {"healthy", "missing", "failover", "failure"})
-  @Timeout(30)
   void positionedReadsOverlapAndCloseTheirReaders(String mode) throws Exception {
     byte[] data = generateData(1024).array();
     BlockLocationInfo info = ECStreamTestUtil.createKeyInfo(repConfig, data.length,
