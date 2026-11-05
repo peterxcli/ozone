@@ -86,7 +86,6 @@ public class GrpcOmTransport implements OmTransport {
   private final Map<String, ManagedChannel> channels;
   private final ConfigurationSource conf;
 
-  private final AtomicReference<String> host;
   private AtomicInteger globalFailoverCount;
   private final int maxSize;
   private final SecurityConfig secConfig;
@@ -107,7 +106,6 @@ public class GrpcOmTransport implements OmTransport {
     this.channels = new HashMap<>();
     this.clients = new HashMap<>();
     this.conf = conf;
-    this.host = new AtomicReference<>();
     this.globalFailoverCount = new AtomicInteger();
 
     secConfig =  new SecurityConfig(conf);
@@ -141,10 +139,6 @@ public class GrpcOmTransport implements OmTransport {
   }
 
   public void start() throws IOException {
-    host.set(omFailoverProxyProvider
-        .getGrpcProxyAddress(
-            omFailoverProxyProvider.getCurrentProxyOMNodeId()));
-
     if (!isRunning.compareAndSet(false, true)) {
       LOG.info("Ignore. already started.");
       return;
@@ -152,37 +146,9 @@ public class GrpcOmTransport implements OmTransport {
 
     for (String nodeId : omFailoverProxyProvider.getOMProxyMap().getNodeIds()) {
       String hostaddr = omFailoverProxyProvider.getGrpcProxyAddress(nodeId);
-      HostAndPort hp = HostAndPort.fromString(hostaddr);
-
-      NettyChannelBuilder channelBuilder =
-          NettyChannelBuilder.forAddress(hp.getHost(), hp.getPort())
-              .usePlaintext()
-              .proxyDetector(uri -> null)
-              .maxInboundMessageSize(maxSize);
-
-      if (secConfig.isSecurityEnabled() && secConfig.isGrpcTlsEnabled()) {
-        try {
-          SslContextBuilder sslContextBuilder = GrpcSslContexts.forClient();
-          if (caCerts != null) {
-            sslContextBuilder.trustManager(caCerts);
-          } else {
-            LOG.error("x509Certificates empty");
-          }
-          channelBuilder.useTransportSecurity().
-              sslContext(sslContextBuilder.build());
-        } catch (Exception ex) {
-          LOG.error("cannot establish TLS for grpc om transport client");
-        }
-      } else {
-        channelBuilder.usePlaintext();
-      }
-
-      channels.put(hostaddr,
-          channelBuilder.intercept(new ClientAddressClientInterceptor())
-              .build());
-      clients.put(hostaddr,
-          OzoneManagerServiceGrpc
-              .newBlockingStub(channels.get(hostaddr)));
+      ManagedChannel channel = createChannel(hostaddr);
+      channels.put(hostaddr, channel);
+      clients.put(hostaddr, OzoneManagerServiceGrpc.newBlockingStub(channel));
     }
     int maxFailovers = conf.getInt(
         OzoneConfigKeys.OZONE_CLIENT_FAILOVER_MAX_ATTEMPTS_KEY,
@@ -192,15 +158,42 @@ public class GrpcOmTransport implements OmTransport {
     LOG.info("{}: started", CLIENT_NAME);
   }
 
+  private ManagedChannel createChannel(String hostaddr) {
+    HostAndPort hp = HostAndPort.fromString(hostaddr);
+
+    NettyChannelBuilder channelBuilder =
+        NettyChannelBuilder.forAddress(hp.getHost(), hp.getPort())
+            .usePlaintext()
+            .proxyDetector(uri -> null)
+            .maxInboundMessageSize(maxSize);
+
+    if (secConfig.isSecurityEnabled() && secConfig.isGrpcTlsEnabled()) {
+      try {
+        SslContextBuilder sslContextBuilder = GrpcSslContexts.forClient();
+        if (caCerts != null) {
+          sslContextBuilder.trustManager(caCerts);
+        } else {
+          LOG.error("x509Certificates empty");
+        }
+        channelBuilder.useTransportSecurity().
+            sslContext(sslContextBuilder.build());
+      } catch (Exception ex) {
+        LOG.error("cannot establish TLS for grpc om transport client");
+      }
+    } else {
+      channelBuilder.usePlaintext();
+    }
+
+    return channelBuilder.intercept(new ClientAddressClientInterceptor()).build();
+  }
+
   @Override
   public OMResponse submitRequest(OMRequest payload) throws IOException {
     int requestFailoverCount = 0;
-    boolean tryOtherHost = true;
-    int expectedFailoverCount = 0;
+    boolean shouldRetry = true;
     ResultCodes resultCode = ResultCodes.INTERNAL_ERROR;
-    while (tryOtherHost) {
-      tryOtherHost = false;
-      expectedFailoverCount = globalFailoverCount.get();
+    while (shouldRetry) {
+      int expectedFailoverCount = globalFailoverCount.get();
       try {
         return followerReadFailoverProxyProvider.submitRequest(payload, this::submitRequestToHost,
             this::submitRequestToLeader);
@@ -214,18 +207,16 @@ public class GrpcOmTransport implements OmTransport {
           resultCode = ResultCodes.TIMEOUT;
         }
         Exception exp = new Exception(e);
-        tryOtherHost = shouldRetry(unwrapException(exp),
+        shouldRetry = prepareRetry(unwrapException(exp),
             expectedFailoverCount, ++requestFailoverCount);
-        if (!tryOtherHost) {
-          throw new OMException(resultCode);
-        }
       }
     }
     throw new OMException(resultCode);
   }
 
   private OMResponse submitRequestToLeader(OMRequest payload) throws IOException {
-    return submitRequestToHost(payload, host.get());
+    return submitRequestToHost(payload,
+        omFailoverProxyProvider.getGrpcProxyAddress(omFailoverProxyProvider.getCurrentProxyOMNodeId()));
   }
 
   private OMResponse submitRequestToHost(OMRequest payload, String targetHost)
@@ -269,7 +260,12 @@ public class GrpcOmTransport implements OmTransport {
     return grpcException;
   }
 
-  private boolean shouldRetry(Exception ex, int expectedFailoverCount, int requestFailoverCount) {
+  /**
+   * Wait and fail over as the retry policy decides for the given failure.
+   *
+   * @return true if the request should be retried.
+   */
+  private boolean prepareRetry(Exception ex, int expectedFailoverCount, int requestFailoverCount) {
     boolean retry = false;
     RetryPolicy.RetryAction action = null;
     try {
@@ -289,7 +285,6 @@ public class GrpcOmTransport implements OmTransport {
               LOG.error("Error trying sleep thread for {}", action.delayMillis);
             }
           }
-          // switch om host to current proxy OMNodeId
           if (globalFailoverCount.get() == expectedFailoverCount) {
             omFailoverProxyProvider.performFailover(null);
             globalFailoverCount.getAndIncrement();
@@ -297,9 +292,6 @@ public class GrpcOmTransport implements OmTransport {
             LOG.warn("A failover has occurred since the start of current" +
                 " thread retry, NOT failover using current proxy");
           }
-          host.set(omFailoverProxyProvider
-              .getGrpcProxyAddress(
-                  omFailoverProxyProvider.getCurrentProxyOMNodeId()));
           retry = true;
         }
       }
@@ -405,7 +397,6 @@ public class GrpcOmTransport implements OmTransport {
   public void changeLeaderProxyForTest(String nodeId) throws IOException {
     omFailoverProxyProvider.setNextOmProxy(nodeId);
     omFailoverProxyProvider.performFailover(null);
-    host.set(omFailoverProxyProvider.getGrpcProxyAddress(nodeId));
   }
 
 }
