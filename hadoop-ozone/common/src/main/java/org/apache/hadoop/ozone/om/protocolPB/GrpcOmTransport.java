@@ -19,12 +19,11 @@ package org.apache.hadoop.ozone.om.protocolPB;
 
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_GRPC_MAXIMUM_RESPONSE_LENGTH;
 import static org.apache.hadoop.ozone.om.OMConfigKeys.OZONE_OM_GRPC_MAXIMUM_RESPONSE_LENGTH_DEFAULT;
-import static org.apache.hadoop.ozone.om.exceptions.OMException.ResultCodes.SSL_CONNECTION_FAILURE;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.HostAndPort;
+import com.google.protobuf.RpcController;
 import com.google.protobuf.ServiceException;
-import io.grpc.Context;
 import io.grpc.ManagedChannel;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -32,7 +31,6 @@ import io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.NettyChannelBuilder;
 import io.netty.handler.ssl.SslContextBuilder;
 import java.io.IOException;
-import java.net.InetAddress;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -40,8 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.apache.hadoop.hdds.conf.Config;
 import org.apache.hadoop.hdds.conf.ConfigGroup;
@@ -49,7 +45,6 @@ import org.apache.hadoop.hdds.conf.ConfigTag;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.security.SecurityConfig;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.retry.RetryPolicy;
 import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.exceptions.OMException.ResultCodes;
@@ -57,8 +52,6 @@ import org.apache.hadoop.ozone.om.ha.GrpcOMFailoverProxyProvider;
 import org.apache.hadoop.ozone.om.ha.GrpcOMFollowerReadFailoverProxyProvider;
 import org.apache.hadoop.ozone.om.helpers.ReadConsistency;
 import org.apache.hadoop.ozone.om.protocolPB.grpc.ClientAddressClientInterceptor;
-import org.apache.hadoop.ozone.om.protocolPB.grpc.GrpcClientConstants;
-import org.apache.hadoop.ozone.om.protocolPB.grpc.OMGrpcError;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMRequest;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMResponse;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerServiceGrpc;
@@ -73,6 +66,11 @@ public class GrpcOmTransport implements OmTransport {
   private static final Logger LOG =
       LoggerFactory.getLogger(GrpcOmTransport.class);
 
+  /**
+   * RpcController is not used and hence is set to null.
+   */
+  private static final RpcController NULL_RPC_CONTROLLER = null;
+
   private static final String CLIENT_NAME = "GrpcOmTransport";
   private static final int SHUTDOWN_WAIT_INTERVAL = 100;
   private static final int SHUTDOWN_MAX_WAIT_SECONDS = 5;
@@ -84,16 +82,12 @@ public class GrpcOmTransport implements OmTransport {
   private final Map<String,
       OzoneManagerServiceGrpc.OzoneManagerServiceBlockingStub> clients;
   private final Map<String, ManagedChannel> channels;
-  private final ConfigurationSource conf;
-
-  private AtomicInteger globalFailoverCount;
   private final int maxSize;
   private final SecurityConfig secConfig;
 
-  private RetryPolicy retryPolicy;
-  private final GrpcOMFailoverProxyProvider<OzoneManagerProtocolPB>
-      omFailoverProxyProvider;
+  private final GrpcOMFailoverProxyProvider omFailoverProxyProvider;
   private final GrpcOMFollowerReadFailoverProxyProvider followerReadFailoverProxyProvider;
+  private final OzoneManagerProtocolPB rpcProxy;
 
   public static void setCaCerts(List<X509Certificate> x509Certificates) {
     caCerts = x509Certificates;
@@ -105,18 +99,16 @@ public class GrpcOmTransport implements OmTransport {
 
     this.channels = new HashMap<>();
     this.clients = new HashMap<>();
-    this.conf = conf;
-    this.globalFailoverCount = new AtomicInteger();
 
     secConfig =  new SecurityConfig(conf);
     maxSize = conf.getInt(OZONE_OM_GRPC_MAXIMUM_RESPONSE_LENGTH,
         OZONE_OM_GRPC_MAXIMUM_RESPONSE_LENGTH_DEFAULT);
 
-    omFailoverProxyProvider = new GrpcOMFailoverProxyProvider<>(
+    omFailoverProxyProvider = new GrpcOMFailoverProxyProvider(
         conf,
         ugi,
         omServiceId,
-        OzoneManagerProtocolPB.class);
+        clients::get);
 
     boolean defaultFollowerReadEnabled = conf.getBoolean(
         OzoneConfigKeys.OZONE_CLIENT_FOLLOWER_READ_ENABLED_KEY,
@@ -134,6 +126,10 @@ public class GrpcOmTransport implements OmTransport {
         ReadConsistency.valueOf(defaultLeaderReadConsistencyStr);
     this.followerReadFailoverProxyProvider = new GrpcOMFollowerReadFailoverProxyProvider(omFailoverProxyProvider,
         defaultFollowerReadConsistency, defaultLeaderReadConsistency, defaultFollowerReadEnabled);
+    int maxFailovers = conf.getInt(
+        OzoneConfigKeys.OZONE_CLIENT_FAILOVER_MAX_ATTEMPTS_KEY,
+        OzoneConfigKeys.OZONE_CLIENT_FAILOVER_MAX_ATTEMPTS_DEFAULT);
+    this.rpcProxy = OzoneManagerProtocolPB.newProxy(followerReadFailoverProxyProvider, maxFailovers);
 
     start();
   }
@@ -150,11 +146,6 @@ public class GrpcOmTransport implements OmTransport {
       channels.put(hostaddr, channel);
       clients.put(hostaddr, OzoneManagerServiceGrpc.newBlockingStub(channel));
     }
-    int maxFailovers = conf.getInt(
-        OzoneConfigKeys.OZONE_CLIENT_FAILOVER_MAX_ATTEMPTS_KEY,
-        OzoneConfigKeys.OZONE_CLIENT_FAILOVER_MAX_ATTEMPTS_DEFAULT);
-
-    retryPolicy = omFailoverProxyProvider.getRetryPolicy(maxFailovers);
     LOG.info("{}: started", CLIENT_NAME);
   }
 
@@ -189,107 +180,27 @@ public class GrpcOmTransport implements OmTransport {
 
   @Override
   public OMResponse submitRequest(OMRequest payload) throws IOException {
-    int requestFailoverCount = 0;
-    boolean shouldRetry = true;
-    ResultCodes resultCode = ResultCodes.INTERNAL_ERROR;
-    while (shouldRetry) {
-      int expectedFailoverCount = globalFailoverCount.get();
-      try {
-        return followerReadFailoverProxyProvider.submitRequest(payload, this::submitRequestToHost,
-            this::submitRequestToLeader);
-      } catch (StatusRuntimeException e) {
-        LOG.error("Failed to submit request", e);
-        if (e.getStatus().getCode() == Status.Code.UNAVAILABLE) {
-          if (e.getCause() != null &&
-              e.getCause() instanceof javax.net.ssl.SSLHandshakeException) {
-            throw new OMException(SSL_CONNECTION_FAILURE);
-          }
-          resultCode = ResultCodes.TIMEOUT;
-        }
-        Exception exp = new Exception(e);
-        shouldRetry = prepareRetry(unwrapException(exp),
-            expectedFailoverCount, requestFailoverCount++);
-      }
+    try {
+      return rpcProxy.submitRequest(NULL_RPC_CONTROLLER, payload);
+    } catch (ServiceException e) {
+      throw toOMException(e);
     }
-    throw new OMException(resultCode);
-  }
-
-  private OMResponse submitRequestToLeader(OMRequest payload) throws IOException {
-    return submitRequestToHost(payload,
-        omFailoverProxyProvider.getGrpcProxyAddress(omFailoverProxyProvider.getCurrentProxyOMNodeId()));
-  }
-
-  private OMResponse submitRequestToHost(OMRequest payload, String targetHost)
-      throws IOException {
-    AtomicReference<OMResponse> resp = new AtomicReference<>();
-    InetAddress inetAddress = InetAddress.getLocalHost();
-    Context.current()
-        .withValue(GrpcClientConstants.CLIENT_IP_ADDRESS_CTX_KEY,
-            inetAddress.getHostAddress())
-        .withValue(GrpcClientConstants.CLIENT_HOSTNAME_CTX_KEY,
-            inetAddress.getHostName())
-        .run(() -> resp.set(clients.get(targetHost)
-            .submitRequest(payload)));
-    return resp.get();
-  }
-
-  public static Exception unwrapException(Exception ex) {
-    StatusRuntimeException srexp = (StatusRuntimeException) ex.getCause();
-    Status status = srexp.getStatus();
-    LOG.debug("GRPC exception wrapped: {}", status.getDescription());
-    if (status.getCode() == Status.Code.INTERNAL) {
-      OMGrpcError omError = OMGrpcError.fromStatusRuntimeException(srexp);
-      if (omError != null) {
-        // exception generated by OzoneManagerServiceGrpc
-        return new ServiceException(omError.toException());
-      }
-    } else if ((status.getCode() == Status.Code.RESOURCE_EXHAUSTED) ||
-            (status.getCode() == Status.Code.DATA_LOSS)) {
-      return srexp;
-    }
-    // exception generated by gRPC, e.g. a connection failure
-    return ex;
   }
 
   /**
-   * Wait and fail over as the retry policy decides for the given failure.
-   *
-   * @return true if the request should be retried.
+   * @return the exception for a request that has failed after all the retries.
+   *         An {@link OMException}, such as {@link ResultCodes#SSL_CONNECTION_FAILURE}, is returned as is.
+   *         Any other failure becomes {@link ResultCodes#TIMEOUT} if the OM is unavailable,
+   *         otherwise {@link ResultCodes#INTERNAL_ERROR}.
    */
-  private boolean prepareRetry(Exception ex, int expectedFailoverCount, int requestFailoverCount) {
-    boolean retry = false;
-    RetryPolicy.RetryAction action = null;
-    try {
-      action = retryPolicy.shouldRetry(ex, 0, requestFailoverCount, true);
-      LOG.debug("grpc failover retry action {}", action.action);
-      if (action.action == RetryPolicy.RetryAction.RetryDecision.FAIL) {
-        LOG.error("Retry request failed. Action : {}, {}",
-            action.action, ex.toString());
-      } else {
-        if (action.action == RetryPolicy.RetryAction.RetryDecision.RETRY ||
-            (action.action == RetryPolicy.RetryAction.RetryDecision
-                .FAILOVER_AND_RETRY)) {
-          if (action.delayMillis > 0) {
-            try {
-              Thread.sleep(action.delayMillis);
-            } catch (Exception e) {
-              LOG.error("Error trying sleep thread for {}", action.delayMillis);
-            }
-          }
-          if (globalFailoverCount.get() == expectedFailoverCount) {
-            omFailoverProxyProvider.performFailover(null);
-            globalFailoverCount.getAndIncrement();
-          } else {
-            LOG.warn("A failover has occurred since the start of current" +
-                " thread retry, NOT failover using current proxy");
-          }
-          retry = true;
-        }
-      }
-    } catch (Exception e) {
-      LOG.error("Failed failover exception {}", e);
+  private static OMException toOMException(ServiceException e) {
+    final Throwable cause = e.getCause();
+    if (cause instanceof OMException) {
+      return (OMException) cause;
     }
-    return retry;
+    final boolean unavailable = cause instanceof StatusRuntimeException
+        && ((StatusRuntimeException) cause).getStatus().getCode() == Status.Code.UNAVAILABLE;
+    return new OMException(cause, unavailable ? ResultCodes.TIMEOUT : ResultCodes.INTERNAL_ERROR);
   }
 
   // stub implementation for interface
