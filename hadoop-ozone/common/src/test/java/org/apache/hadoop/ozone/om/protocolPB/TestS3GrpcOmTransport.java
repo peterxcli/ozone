@@ -31,6 +31,8 @@ import static org.mockito.Mockito.mock;
 
 import com.google.protobuf.ServiceException;
 import io.grpc.ManagedChannel;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
@@ -40,9 +42,11 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.net.ssl.SSLHandshakeException;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.ozone.OzoneConfigKeys;
 import org.apache.hadoop.ozone.ha.ConfUtils;
+import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.exceptions.OMLeaderNotReadyException;
 import org.apache.hadoop.ozone.om.exceptions.OMNotLeaderException;
 import org.apache.hadoop.ozone.om.protocolPB.grpc.OMGrpcError;
@@ -225,8 +229,41 @@ public class TestS3GrpcOmTransport {
     // OMFailoverProvider returns Fail retry due to #attempts >
     // max failovers
 
-    assertThrows(Exception.class, () -> client.submitRequest(omRequest));
+    OMException e = assertThrows(OMException.class, () -> client.submitRequest(omRequest));
+    assertEquals(OMException.ResultCodes.INTERNAL_ERROR, e.getResult());
     assertEquals(expectedFailoverCount, failoverCount);
+  }
+
+  @Test
+  public void testUnavailableOmGivesTimeout() throws Exception {
+    configureHaOmService("om0", "om1");
+    conf.setInt(OzoneConfigKeys.OZONE_CLIENT_FAILOVER_MAX_ATTEMPTS_KEY, 1);
+    conf.setLong(OzoneConfigKeys.OZONE_CLIENT_WAIT_BETWEEN_RETRIES_MILLIS_KEY, 10);
+
+    AtomicInteger requestCount = new AtomicInteger();
+    client = new GrpcOmTransport(conf, ugi, omServiceId);
+    client.startClient("om0", createFailingNodeChannel(requestCount, Status.UNAVAILABLE.asRuntimeException()));
+    client.startClient("om1", createFailingNodeChannel(requestCount, Status.UNAVAILABLE.asRuntimeException()));
+
+    OMException e = assertThrows(OMException.class, () -> client.submitRequest(arbitraryOmRequest()));
+    assertEquals(OMException.ResultCodes.TIMEOUT, e.getResult());
+    assertEquals(2, requestCount.get());
+  }
+
+  @Test
+  public void testSslHandshakeFailureIsNotRetried() throws Exception {
+    configureHaOmService("om0", "om1");
+
+    AtomicInteger requestCount = new AtomicInteger();
+    StatusRuntimeException failure = Status.UNAVAILABLE.withCause(new SSLHandshakeException("test"))
+        .asRuntimeException();
+    client = new GrpcOmTransport(conf, ugi, omServiceId);
+    client.startClient("om0", createFailingNodeChannel(requestCount, failure));
+    client.startClient("om1", createFailingNodeChannel(requestCount, failure));
+
+    OMException e = assertThrows(OMException.class, () -> client.submitRequest(arbitraryOmRequest()));
+    assertEquals(OMException.ResultCodes.SSL_CONNECTION_FAILURE, e.getResult());
+    assertEquals(1, requestCount.get());
   }
 
   @Test
@@ -682,6 +719,11 @@ public class TestS3GrpcOmTransport {
 
   private ManagedChannel createNotLeaderNodeChannel(AtomicInteger requestCount,
       OMNotLeaderException notLeaderException) throws IOException {
+    return createFailingNodeChannel(requestCount, OMGrpcError.toStatusRuntimeException(notLeaderException));
+  }
+
+  private ManagedChannel createFailingNodeChannel(AtomicInteger requestCount, StatusRuntimeException failure)
+      throws IOException {
     String nodeServerName = InProcessServerBuilder.generateName();
     grpcCleanup.register(InProcessServerBuilder
         .forName(nodeServerName)
@@ -691,13 +733,13 @@ public class TestS3GrpcOmTransport {
           public void submitRequest(OMRequest request,
               StreamObserver<OMResponse> responseObserver) {
             requestCount.incrementAndGet();
-            responseObserver.onError(OMGrpcError.toStatusRuntimeException(notLeaderException));
+            responseObserver.onError(failure);
           }
         })
         .build()
         .start());
     return grpcCleanup.register(
-        InProcessChannelBuilder.forName(nodeServerName).directExecutor().build());
+        InProcessChannelBuilder.forName(nodeServerName).directExecutor().propagateCauseWithStatus(true).build());
   }
 
   private static OMRequest arbitraryOmRequest() {

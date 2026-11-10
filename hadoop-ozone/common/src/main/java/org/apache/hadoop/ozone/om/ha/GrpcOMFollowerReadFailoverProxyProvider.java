@@ -19,20 +19,18 @@ package org.apache.hadoop.ozone.om.ha;
 
 import static org.apache.hadoop.ozone.om.ha.OMFailoverProxyProviderBase.getLeaderNotReadyException;
 import static org.apache.hadoop.ozone.om.ha.OMFailoverProxyProviderBase.getNotLeaderException;
-import static org.apache.hadoop.ozone.om.ha.OMFailoverProxyProviderBase.getReadException;
-import static org.apache.hadoop.ozone.om.ha.OMFailoverProxyProviderBase.getReadIndexException;
 
-import io.grpc.StatusRuntimeException;
+import com.google.protobuf.RpcController;
+import com.google.protobuf.ServiceException;
 import java.io.IOException;
+import java.util.stream.Collectors;
+import org.apache.hadoop.io.retry.FailoverProxyProvider;
+import org.apache.hadoop.io.retry.RetryPolicy;
 import org.apache.hadoop.ozone.om.helpers.ReadConsistency;
 import org.apache.hadoop.ozone.om.protocolPB.GrpcOmTransport;
 import org.apache.hadoop.ozone.om.protocolPB.OzoneManagerProtocolPB;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMRequest;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMResponse;
-import org.apache.ratis.protocol.exceptions.ReadException;
-import org.apache.ratis.protocol.exceptions.ReadIndexException;
-import org.apache.ratis.util.function.CheckedBiFunction;
-import org.apache.ratis.util.function.CheckedFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,84 +42,103 @@ import org.slf4j.LoggerFactory;
  * to the next OM node. If all the OM nodes have failed, the request falls back to the leader OM.
  * <p>
  * Write requests, and read requests when follower read is disabled, are sent to the leader OM.
+ * A failure from the leader OM, or a failure that needs the OM retry policy, such as
+ * {@link org.apache.hadoop.ozone.om.exceptions.OMLeaderNotReadyException}, is handled by
+ * {@link OMFailoverProxyProviderBase#getRetryPolicy(int)}.
  */
-public class GrpcOMFollowerReadFailoverProxyProvider extends FollowerReadFailoverProxyProviderBase {
+public class GrpcOMFollowerReadFailoverProxyProvider extends FollowerReadFailoverProxyProviderBase
+    implements FailoverProxyProvider<OzoneManagerProtocolPB> {
   private static final Logger LOG = LoggerFactory.getLogger(GrpcOMFollowerReadFailoverProxyProvider.class);
 
   /** The inner proxy provider used for leader-based failover. */
-  private final GrpcOMFailoverProxyProvider<OzoneManagerProtocolPB> leaderProxy;
+  private final GrpcOMFailoverProxyProvider leaderProxy;
 
-  public GrpcOMFollowerReadFailoverProxyProvider(GrpcOMFailoverProxyProvider<OzoneManagerProtocolPB> leaderProxy,
+  /** The combined proxy which sends a request to a follower or the leader. */
+  private final ProxyInfo<OzoneManagerProtocolPB> combinedProxy;
+
+  public GrpcOMFollowerReadFailoverProxyProvider(GrpcOMFailoverProxyProvider leaderProxy,
       ReadConsistency followerReadConsistencyType, ReadConsistency leaderReadConsistencyType,
       boolean defaultFollowerReadEnabled) {
     super(followerReadConsistencyType, leaderReadConsistencyType, defaultFollowerReadEnabled);
     this.leaderProxy = leaderProxy;
+    final String combinedInfo = leaderProxy.getOMProxies().stream()
+        .map(p -> p.proxyInfo)
+        .collect(Collectors.joining(", ", "[", "]"));
+    this.combinedProxy = new ProxyInfo<>(new FollowerReadProxy(), combinedInfo);
   }
 
   @Override
-  protected GrpcOMFailoverProxyProvider<OzoneManagerProtocolPB> getLeaderProxy() {
+  protected GrpcOMFailoverProxyProvider getLeaderProxy() {
     return leaderProxy;
   }
 
-  /**
-   * Submit the request to an OM follower if follower read is used, otherwise to the leader OM.
-   * A failure that needs the OM retry policy, such as
-   * {@link org.apache.hadoop.ozone.om.exceptions.OMLeaderNotReadyException}, is thrown to the caller.
-   *
-   * @param payload the request to submit.
-   * @param submitToHost submits a request to the OM at the given gRPC address.
-   * @param submitToLeader submits a request to the current leader OM.
-   * @return the response of the request.
-   */
-  public OMResponse submitRequest(OMRequest payload,
-      CheckedBiFunction<OMRequest, String, OMResponse, IOException> submitToHost,
-      CheckedFunction<OMRequest, OMResponse, IOException> submitToLeader) throws IOException {
-    if (shouldUseFollowerRead(payload)) {
-      OMRequest followerPayload = addReadConsistencyHint(payload, true);
-      ReadConsistency readConsistency = getReadConsistency(payload);
-      int failedCount = 0;
-      for (int i = 0; i < getOMNodeCount(); i++) {
-        String nodeId = selectFollowerReadNodeId(readConsistency);
-        if (nodeId == null) {
-          break;
-        }
-        String followerHost = leaderProxy.getGrpcProxyAddress(nodeId);
-        try {
-          OMResponse response = submitToHost.apply(followerPayload, followerHost);
-          LOG.debug("Invocation with cmdType {} using follower read host {} was successful",
-              followerPayload.getCmdType(), followerHost);
-          return response;
-        } catch (StatusRuntimeException e) {
-          LOG.debug("Invocation with cmdType {} using follower read host {} failed",
-              followerPayload.getCmdType(), followerHost, e);
-          Exception unwrapped = GrpcOmTransport.unwrapException(new Exception(e));
-          if (getNotLeaderException(unwrapped) != null) {
-            LOG.debug("Encountered OMNotLeaderException from {}. "
-                + "Disable OM follower read and retry OM leader directly.", followerHost);
-            disableFollowerRead();
+  @Override
+  public Class<OzoneManagerProtocolPB> getInterface() {
+    return OzoneManagerProtocolPB.class;
+  }
+
+  @Override
+  public ProxyInfo<OzoneManagerProtocolPB> getProxy() {
+    return combinedProxy;
+  }
+
+  @Override
+  public void performFailover(OzoneManagerProtocolPB currentProxy) {
+    leaderProxy.performFailover(currentProxy);
+  }
+
+  public RetryPolicy getRetryPolicy(int maxFailovers) {
+    return leaderProxy.getRetryPolicy(maxFailovers);
+  }
+
+  @Override
+  public void close() throws IOException {
+    leaderProxy.close();
+  }
+
+  /** Send a request to an OM follower if follower read is used, otherwise to the leader OM. */
+  private class FollowerReadProxy implements OzoneManagerProtocolPB {
+    @Override
+    public OMResponse submitRequest(RpcController controller, OMRequest request) throws ServiceException {
+      if (shouldUseFollowerRead(request)) {
+        final OMRequest followerRequest = addReadConsistencyHint(request, true);
+        final ReadConsistency readConsistency = getReadConsistency(followerRequest);
+        int failedCount = 0;
+        for (int i = 0; i < getOMNodeCount(); i++) {
+          final String nodeId = selectFollowerReadNodeId(readConsistency);
+          if (nodeId == null) {
             break;
           }
-          if (getLeaderNotReadyException(unwrapped) != null) {
-            throw e;
-          }
-          ReadIndexException readIndexException = getReadIndexException(unwrapped);
-          ReadException readException = getReadException(unwrapped);
-          if (readIndexException != null || readException != null ||
-              leaderProxy.shouldFailover(unwrapped)) {
+          final OMProxyInfo<OzoneManagerProtocolPB> current = leaderProxy.createOMProxyIfNeeded(nodeId);
+          try {
+            final OMResponse response = current.getProxy().submitRequest(controller, followerRequest);
+            LOG.debug("Invocation with cmdType {} using follower read proxy {} was successful",
+                followerRequest.getCmdType(), current.proxyInfo);
+            return response;
+          } catch (ServiceException e) {
+            LOG.debug("Invocation with cmdType {} using follower read proxy {} failed",
+                followerRequest.getCmdType(), current.proxyInfo, e);
+            if (getNotLeaderException(e) != null) {
+              LOG.debug("Encountered OMNotLeaderException from {}. "
+                  + "Disable OM follower read and retry OM leader directly.", current.proxyInfo);
+              disableFollowerRead();
+              break;
+            }
+            if (getLeaderNotReadyException(e) != null || !leaderProxy.shouldFailover(e)) {
+              throw e;
+            }
             failedCount++;
             changeFollowerReadNodeId(nodeId);
-          } else {
-            throw e;
           }
         }
+        if (failedCount > 0) {
+          LOG.warn("{} nodes have failed for read request with cmdType {}. Falling back to leader.",
+              failedCount, request.getCmdType());
+        }
       }
-      if (failedCount > 0) {
-        LOG.warn("{} nodes have failed for read request with cmdType {}. Falling back to leader.",
-            failedCount, payload.getCmdType());
-      }
-    }
 
-    // Either follower read is not used, or no OM node has served the request.
-    return submitToLeader.apply(addReadConsistencyHint(payload, false));
+      // Either follower read is not used, or no OM node has served the request.
+      return leaderProxy.getProxy().getProxy().submitRequest(controller, addReadConsistencyHint(request, false));
+    }
   }
 }
